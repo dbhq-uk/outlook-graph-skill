@@ -14,7 +14,7 @@ fi
 
 # Install/upgrade dependencies
 echo "Installing dependencies..."
-"$SKILL_DIR/.venv/bin/pip" install --upgrade pip -q
+"$SKILL_DIR/.venv/bin/pip" install --upgrade pip setuptools wheel -q
 "$SKILL_DIR/.venv/bin/pip" install -r "$SKILL_DIR/requirements.txt" -q
 
 echo "==> pst-to-markdown environment ready"
