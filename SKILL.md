@@ -138,22 +138,17 @@ To verify: `sha256sum -c manifest.sha256`
 
 ## Workflow: Extract and Search
 
-For large archives, combine with the repo-search skill:
-
-1. Extract PST to markdown with this skill
-2. Index the output with repo-search ingest
-3. Semantic search across all emails
+Extract, then search the markdown with ripgrep. There is no semantic index (the ChromaDB `repo-search` skill was retired 14 Jul 2026).
 
 ```bash
 # Step 1: Extract
 ~/.claude/skills/pst-to-markdown/.venv/bin/python ~/.claude/skills/pst-to-markdown/scripts/extract_pst.py archive.pst ./email-output/ --verbose
 
-# Step 2: Index for search (uses repo-search skill)
-~/.claude/skills/repo-search/.venv/bin/python ~/.claude/skills/repo-search/ingest.py ./email-output/ --verbose
-
-# Step 3: Search
-~/.claude/skills/repo-search/.venv/bin/python ~/.claude/skills/repo-search/query.py --db-path ./email-output/.vectordb search "settlement agreement"
+# Step 2: Search the output
+rg -i "settlement agreement" ./email-output/ -l
 ```
+
+Grep is exact, so search on names, addresses and distinctive phrases rather than concepts.
 
 ## Error Handling
 
