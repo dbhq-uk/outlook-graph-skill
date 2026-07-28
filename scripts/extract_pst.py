@@ -28,23 +28,28 @@ from typing import Optional
 # Optional dependencies with fallbacks
 try:
     from dateutil import parser as date_parser
+
     HAS_DATEUTIL = True
 except ImportError:
     HAS_DATEUTIL = False
 
 try:
     from tqdm import tqdm
+
     HAS_TQDM = True
 except ImportError:
     HAS_TQDM = False
+
     # Simple fallback for tqdm
     def tqdm(iterable, desc=None, **kwargs):
         if desc:
             print(f"{desc}...")
         return iterable
 
+
 try:
     import html2text
+
     HAS_HTML2TEXT = True
 except ImportError:
     HAS_HTML2TEXT = False
@@ -53,6 +58,7 @@ except ImportError:
 USE_LIBRATOM = False
 try:
     from libratom.lib.pff import PffArchive
+
     USE_LIBRATOM = True
 except ImportError:
     pass
@@ -120,6 +126,7 @@ def html_to_markdown(html_content: str) -> str:
     else:
         # Simple fallback: strip HTML tags
         import re
+
         text = re.sub(r'<br\s*/?>', '\n', html_content, flags=re.IGNORECASE)
         text = re.sub(r'<p\s*/?>', '\n\n', text, flags=re.IGNORECASE)
         text = re.sub(r'</p>', '', text, flags=re.IGNORECASE)
@@ -152,12 +159,16 @@ def format_date_human(dt: datetime) -> str:
 class EmailExtractor:
     """Extract emails from PST file."""
 
-    def __init__(self, pst_path: Path, output_dir: Path,
-                 include_deleted: bool = False,
-                 target_timezone: str = "UTC",
-                 verbose: bool = False,
-                 append: bool = False,
-                 owner_email: str = None):
+    def __init__(
+        self,
+        pst_path: Path,
+        output_dir: Path,
+        include_deleted: bool = False,
+        target_timezone: str = "UTC",
+        verbose: bool = False,
+        append: bool = False,
+        owner_email: str = None,
+    ):
         self.pst_path = pst_path
         self.output_dir = output_dir
         self.emails_dir = output_dir / "emails"
@@ -167,13 +178,7 @@ class EmailExtractor:
         self.append = append
         self.owner_email = owner_email
 
-        self.stats = {
-            'total': 0,
-            'processed': 0,
-            'errors': 0,
-            'attachments': 0,
-            'skipped': 0
-        }
+        self.stats = {'total': 0, 'processed': 0, 'errors': 0, 'attachments': 0, 'skipped': 0}
         self.index_data = []
         self.existing_message_ids = set()  # For append mode
         self.error_log = []
@@ -404,12 +409,17 @@ class EmailExtractor:
 
             # Run readpst with EML output
             print("Extracting emails from PST (this may take a while)...")
-            result = subprocess.run([
-                'readpst',
-                '-e',  # Extract each message to separate file
-                '-o', str(tmppath),
-                str(self.pst_path)
-            ], capture_output=True, text=True)
+            result = subprocess.run(
+                [
+                    'readpst',
+                    '-e',  # Extract each message to separate file
+                    '-o',
+                    str(tmppath),
+                    str(self.pst_path),
+                ],
+                capture_output=True,
+                text=True,
+            )
 
             if result.returncode != 0:
                 print(f"readpst failed: {result.stderr}")
@@ -448,6 +458,7 @@ class EmailExtractor:
             elif date_str:
                 # Try standard library email.utils
                 from email.utils import parsedate_to_datetime
+
                 sent_date = parsedate_to_datetime(date_str)
             else:
                 sent_date = datetime.now(timezone.utc)
@@ -554,12 +565,14 @@ class EmailExtractor:
                     if att_data:
                         filename = part.get_filename() or f"attachment_{att_index}"
                         content_type = part.get_content_type()
-                        email_data['attachments'].append({
-                            'original_name': filename,
-                            'data': att_data,
-                            'content_type': content_type,
-                            'index': att_index,
-                        })
+                        email_data['attachments'].append(
+                            {
+                                'original_name': filename,
+                                'data': att_data,
+                                'content_type': content_type,
+                                'index': att_index,
+                            }
+                        )
                         att_index += 1
 
         self._save_email(email_data)
@@ -589,7 +602,9 @@ class EmailExtractor:
 
         # Create folder name - prefer name over email when available
         date_str = sent_date.strftime("%Y-%m-%d_%H%M%S")
-        sender_sanitized = sanitize_filename(sender_name, max_length=40) if sender_name else sanitize_email(sender_email)
+        sender_sanitized = (
+            sanitize_filename(sender_name, max_length=40) if sender_name else sanitize_email(sender_email)
+        )
         to_sanitized = sanitize_filename(to_name, max_length=40) if to_name else sanitize_email(to_email)
         subject_sanitized = sanitize_filename(subject, max_length=50)
 
@@ -636,6 +651,7 @@ class EmailExtractor:
         if 'raw_eml_path' in email_data:
             # Copy the original eml file
             import shutil
+
             shutil.copy2(email_data['raw_eml_path'], eml_path)
         else:
             # Generate .eml from message data
@@ -667,21 +683,23 @@ class EmailExtractor:
         sender_name, sender_email = parse_email_address(email_data['sender'])
         to_name, to_email = parse_email_address(to_list[0]) if to_list else ("", "")
 
-        self.index_data.append({
-            'folder_name': relative_folder_path,
-            'date': sent_date.strftime("%Y-%m-%d"),
-            'time': sent_date.strftime("%H:%M:%S"),
-            'from_email': sender_email,
-            'from_name': sender_name,
-            'to_email': to_email,
-            'to_name': to_name,
-            'cc': ', '.join(email_data.get('cc_list', [])),
-            'subject': subject,
-            'attachment_count': len(saved_attachments),
-            'has_body': bool(email_data.get('body_md', '').strip()),
-            'pst_folder': pst_folder,
-            'message_id': email_data.get('message_id', ''),
-        })
+        self.index_data.append(
+            {
+                'folder_name': relative_folder_path,
+                'date': sent_date.strftime("%Y-%m-%d"),
+                'time': sent_date.strftime("%H:%M:%S"),
+                'from_email': sender_email,
+                'from_name': sender_name,
+                'to_email': to_email,
+                'to_name': to_name,
+                'cc': ', '.join(email_data.get('cc_list', [])),
+                'subject': subject,
+                'attachment_count': len(saved_attachments),
+                'has_body': bool(email_data.get('body_md', '').strip()),
+                'pst_folder': pst_folder,
+                'message_id': email_data.get('message_id', ''),
+            }
+        )
 
     def _write_attachment(self, email_folder: Path, att: dict) -> Optional[dict]:
         """Write attachment to disk."""
@@ -859,11 +877,24 @@ class EmailExtractor:
         # Generate CSV
         csv_path = self.output_dir / "index.csv"
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=[
-                'folder_name', 'date', 'time', 'from_email', 'from_name',
-                'to_email', 'to_name', 'cc', 'subject', 'attachment_count',
-                'has_body', 'pst_folder', 'message_id'
-            ])
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    'folder_name',
+                    'date',
+                    'time',
+                    'from_email',
+                    'from_name',
+                    'to_email',
+                    'to_name',
+                    'cc',
+                    'subject',
+                    'attachment_count',
+                    'has_body',
+                    'pst_folder',
+                    'message_id',
+                ],
+            )
             writer.writeheader()
             writer.writerows(self.index_data)
 
@@ -872,7 +903,9 @@ class EmailExtractor:
 
         date_range_str = "N/A"
         if self.date_range['min'] and self.date_range['max']:
-            date_range_str = f"{self.date_range['min'].strftime('%Y-%m-%d')} to {self.date_range['max'].strftime('%Y-%m-%d')}"
+            date_range_str = (
+                f"{self.date_range['min'].strftime('%Y-%m-%d')} to {self.date_range['max'].strftime('%Y-%m-%d')}"
+            )
 
         source_size = format_size(self.pst_path.stat().st_size) if self.pst_path.is_file() else "N/A"
 
@@ -922,8 +955,10 @@ class EmailExtractor:
             from_display = item['from_name'] or item['from_email']
             to_display = item['to_name'] or item['to_email']
 
-            lines.append(f"- [{item['date']} {item['time']}](./emails/{item['folder_name']}/) - "
-                        f"**{from_display}** \u2192 {to_display} - \"{item['subject']}\"{att_str}")
+            lines.append(
+                f"- [{item['date']} {item['time']}](./emails/{item['folder_name']}/) - "
+                f"**{from_display}** \u2192 {to_display} - \"{item['subject']}\"{att_str}"
+            )
 
         with open(md_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines) + '\n')
@@ -1012,16 +1047,13 @@ def main():
     )
     parser.add_argument("pst_file", help="Path to PST file (or directory of .eml files)")
     parser.add_argument("output_dir", help="Output directory")
-    parser.add_argument("--include-deleted", action="store_true",
-                       help="Include deleted items")
-    parser.add_argument("--timezone", default="UTC",
-                       help="Target timezone for dates (default: UTC)")
-    parser.add_argument("--verbose", "-v", action="store_true",
-                       help="Verbose output")
-    parser.add_argument("--append", action="store_true",
-                       help="Append mode: skip emails already in the archive (by message ID)")
-    parser.add_argument("--owner-email",
-                       help="PST owner's email address (used to fix MAILER-DAEMON sent items)")
+    parser.add_argument("--include-deleted", action="store_true", help="Include deleted items")
+    parser.add_argument("--timezone", default="UTC", help="Target timezone for dates (default: UTC)")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument(
+        "--append", action="store_true", help="Append mode: skip emails already in the archive (by message ID)"
+    )
+    parser.add_argument("--owner-email", help="PST owner's email address (used to fix MAILER-DAEMON sent items)")
 
     args = parser.parse_args()
 

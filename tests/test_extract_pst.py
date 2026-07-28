@@ -26,9 +26,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 import extract_pst  # noqa: E402
 
 INDEX_COLUMNS = [
-    "folder_name", "date", "time", "from_email", "from_name",
-    "to_email", "to_name", "cc", "subject", "attachment_count",
-    "has_body", "pst_folder", "message_id",
+    "folder_name",
+    "date",
+    "time",
+    "from_email",
+    "from_name",
+    "to_email",
+    "to_name",
+    "cc",
+    "subject",
+    "attachment_count",
+    "has_body",
+    "pst_folder",
+    "message_id",
 ]
 
 
@@ -53,7 +63,6 @@ def index_row(message_id: str, **overrides) -> dict:
 
 
 class TestSanitizeFilename(unittest.TestCase):
-
     def test_spaces_become_hyphens(self):
         self.assertEqual(extract_pst.sanitize_filename("quarterly report"), "quarterly-report")
 
@@ -97,7 +106,6 @@ class TestSanitizeFilename(unittest.TestCase):
 
 
 class TestSanitizeEmail(unittest.TestCase):
-
     def test_extracts_address_from_display_name_form(self):
         result = extract_pst.sanitize_email("A Sender <sender@example.com>")
         self.assertIn("sender", result)
@@ -118,7 +126,6 @@ class TestSanitizeEmail(unittest.TestCase):
 
 
 class TestParseEmailAddress(unittest.TestCase):
-
     def test_display_name_and_address(self):
         name, email = extract_pst.parse_email_address("A Sender <sender@example.com>")
         self.assertEqual(name, "A Sender")
@@ -149,7 +156,6 @@ class TestParseEmailAddress(unittest.TestCase):
 
 
 class TestComputeSha256(unittest.TestCase):
-
     def test_matches_hashlib(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "file.bin"
@@ -182,7 +188,6 @@ class TestComputeSha256(unittest.TestCase):
 
 
 class TestFormatSize(unittest.TestCase):
-
     def test_bytes_render_without_a_decimal(self):
         self.assertEqual(extract_pst.format_size(512), "512 B")
 
@@ -193,10 +198,10 @@ class TestFormatSize(unittest.TestCase):
         self.assertEqual(extract_pst.format_size(1024 * 1024), "1.0 MB")
 
     def test_gigabytes(self):
-        self.assertEqual(extract_pst.format_size(1024 ** 3), "1.0 GB")
+        self.assertEqual(extract_pst.format_size(1024**3), "1.0 GB")
 
     def test_terabytes_are_the_ceiling(self):
-        self.assertTrue(extract_pst.format_size(1024 ** 4).endswith("TB"))
+        self.assertTrue(extract_pst.format_size(1024**4).endswith("TB"))
 
     def test_zero(self):
         self.assertEqual(extract_pst.format_size(0), "0 B")
@@ -290,10 +295,12 @@ class TestAppendModeIndexLoading(unittest.TestCase):
         self.assertEqual(ex.index_data, [])
 
     def test_message_ids_are_loaded(self):
-        self.write_index([
-            index_row("<a@example.com>"),
-            index_row("<b@example.com>"),
-        ])
+        self.write_index(
+            [
+                index_row("<a@example.com>"),
+                index_row("<b@example.com>"),
+            ]
+        )
         ex = self.extractor()
         ex._load_existing_index()
         self.assertEqual(
@@ -322,31 +329,37 @@ class TestAppendModeIndexLoading(unittest.TestCase):
         self.assertEqual(ex.existing_message_ids, {"<spaced@example.com>"})
 
     def test_folder_counts_are_rebuilt_from_the_index(self):
-        self.write_index([
-            index_row("<a@x>", pst_folder="Inbox"),
-            index_row("<b@x>", pst_folder="Inbox"),
-            index_row("<c@x>", pst_folder="Sent"),
-        ])
+        self.write_index(
+            [
+                index_row("<a@x>", pst_folder="Inbox"),
+                index_row("<b@x>", pst_folder="Inbox"),
+                index_row("<c@x>", pst_folder="Sent"),
+            ]
+        )
         ex = self.extractor()
         ex._load_existing_index()
         self.assertEqual(ex.folder_counts, {"Inbox": 2, "Sent": 1})
 
     def test_date_range_is_rebuilt_from_the_index(self):
-        self.write_index([
-            index_row("<a@x>", date="2026-03-01"),
-            index_row("<b@x>", date="2026-07-15"),
-            index_row("<c@x>", date="2026-05-02"),
-        ])
+        self.write_index(
+            [
+                index_row("<a@x>", date="2026-03-01"),
+                index_row("<b@x>", date="2026-07-15"),
+                index_row("<c@x>", date="2026-05-02"),
+            ]
+        )
         ex = self.extractor()
         ex._load_existing_index()
         self.assertEqual(ex.date_range["min"].strftime("%Y-%m-%d"), "2026-03-01")
         self.assertEqual(ex.date_range["max"].strftime("%Y-%m-%d"), "2026-07-15")
 
     def test_unparseable_dates_are_ignored_rather_than_fatal(self):
-        self.write_index([
-            index_row("<a@x>", date="not-a-date"),
-            index_row("<b@x>", date="2026-07-15"),
-        ])
+        self.write_index(
+            [
+                index_row("<a@x>", date="not-a-date"),
+                index_row("<b@x>", date="2026-07-15"),
+            ]
+        )
         ex = self.extractor()
         ex._load_existing_index()
         self.assertEqual(ex.date_range["max"].strftime("%Y-%m-%d"), "2026-07-15")
