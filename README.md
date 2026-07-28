@@ -150,9 +150,11 @@ Checked per skill - a missing dependency skips that skill rather than failing th
 | Skill | Required | Optional |
 |---|---|---|
 | `outlook-graph` | `azure-cli` · `jq` · `curl` | `pandoc` (markdown-formatted emails) |
-| `pst-to-markdown` | `python3` | `readpst` (`pst-utils`; fallback backend if `libratom` fails) |
+| `pst-to-markdown` | `python3` (3.9+) | `readpst` (`pst-utils`; fallback backend) |
 
 `pst-to-markdown` provisions its own virtualenv on install (`libratom`, `html2text`, `python-dateutil`, `tqdm`).
+
+**A note on Python versions.** `libratom`, the preferred PST backend, pins `numpy==1.23.5`, whose newest wheel is cp311 - so it cannot install on Python 3.12 or later, which is what most current systems ship. `setup.sh` handles this rather than failing: it prefers a 3.9-3.11 interpreter if one is on your PATH, and otherwise builds the venv without `libratom` and tells you plainly that extraction then depends on `readpst`. Install `pst-utils` (or a 3.11 interpreter) and you are covered either way. CI asserts both paths - the suite runs on 3.9/3.11/3.13 without `libratom`, and a separate job proves the full documented install on 3.11.
 
 ## Credentials and privacy
 

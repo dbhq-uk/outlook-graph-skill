@@ -92,3 +92,82 @@ jobs:
                   print(f"{skill}: description exceeds 1024 chars"); ok = False
           sys.exit(0 if ok else 1)
           PY
+
+  pst-to-markdown:
+    name: pst-to-markdown (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Hard 3.9 floor: parse_email_address annotates `tuple[str, str]` at
+        # runtime with no `from __future__ import annotations`, so PEP 585
+        # builtin generics must exist for the module to import at all.
+        python-version: ['3.9', '3.11', '3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test dependencies (requirements.txt minus libratom)
+        working-directory: skills/pst-to-markdown
+        # Deliberately NOT the full requirements.txt. libratom pins
+        # numpy==1.23.5, which has no wheel above cp311 and cannot build on
+        # 3.12+ - installing it here would make this job unrunnable on current
+        # Python. libratom is an optional guarded import and the extraction
+        # driver that uses it needs a real PST fixture, so the suite runs fine
+        # without it. The full-install path is proved by the job below.
+        #
+        # Filtered from requirements.txt rather than hand-listed, so a new
+        # dependency added there is picked up here instead of silently missing.
+        run: |
+          set -euo pipefail
+          grep -v '^libratom' requirements.txt > /tmp/requirements-no-libratom.txt
+          echo "installing:"; cat /tmp/requirements-no-libratom.txt
+          python -m pip install --upgrade pip pytest
+          python -m pip install -r /tmp/requirements-no-libratom.txt
+
+      - name: Run test suite
+        working-directory: skills/pst-to-markdown
+        run: python -m pytest tests/ -v -p no:cacheprovider
+
+  pst-to-markdown-install:
+    name: pst-to-markdown (full requirements, py3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # 3.11 is the real ceiling for the documented install, not a preference:
+          # libratom pins numpy==1.23.5, whose newest wheel is cp311. This job
+          # exists so that ceiling is asserted rather than discovered by a user.
+          # If it ever starts failing, libratom has moved and setup.sh's
+          # interpreter-selection cap needs revisiting.
+          python-version: '3.11'
+
+      - name: Install the full documented requirements
+        working-directory: skills/pst-to-markdown
+        # setuptools and wheel go in first: libratom's transitive numpy==1.23.5
+        # is an sdist here and needs a build backend present to configure.
+        run: |
+          python -m pip install --upgrade pip setuptools wheel pytest
+          python -m pip install -r requirements.txt
+
+      - name: libratom is importable, so the extraction path is real
+        working-directory: skills/pst-to-markdown
+        run: |
+          python -c "from libratom.lib.pff import PffArchive; print('libratom import OK')"
+          python -c "
+          import sys; sys.path.insert(0, 'scripts')
+          import extract_pst
+          assert extract_pst.USE_LIBRATOM, 'libratom installed but not detected'
+          print('extract_pst detects libratom')
+          "
+
+      - name: Run the suite against the full dependency set
+        working-directory: skills/pst-to-markdown
+        run: python -m pytest tests/ -v -p no:cacheprovider
