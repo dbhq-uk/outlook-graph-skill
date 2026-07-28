@@ -14,11 +14,22 @@ jobs:
         run: jq empty .claude-plugin/plugin.json
 
       - name: Check shell scripts parse
+        # Root installers included: they grew per-skill dependency logic when the
+        # repo became a pack, and a syntax error there breaks every install.
         run: |
           fail=0
           while IFS= read -r s; do
             bash -n "$s" || { echo "Syntax error: $s"; fail=1; }
-          done < <(find skills -name '*.sh')
+          done < <({ find . -maxdepth 1 -name '*.sh'; find skills -name '*.sh'; })
+          exit $fail
+
+      - name: Check Python scripts parse
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$f" \
+              || { echo "Syntax error: $f"; fail=1; }
+          done < <(find skills -name '*.py')
           exit $fail
 
       # md_to_html shells out to pandoc, and the suite SKIPS its tests when pandoc

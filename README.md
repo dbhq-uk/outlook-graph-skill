@@ -4,7 +4,7 @@
 
 # Outlook for Claude Code
 
-**Microsoft 365 email and calendar in your terminal - driven by Claude Code or Codex, powered by the Microsoft Graph API**
+**Your Microsoft 365 mail, calendar and archives in the terminal - driven by Claude Code or Codex**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://code.claude.com/docs/en/plugins)
@@ -17,6 +17,15 @@ A free, open-source tool by [DBHQ](https://dbhq.uk)
 ---
 
 Read your inbox, draft and send properly formatted replies and forwards, triage with flags and categories, manage attachments up to 150 MB, and run your calendar - including responding to invites and inviting attendees - all from Claude Code or Codex, in plain language. Multi-account, OAuth-based, and built with the safety rails that matter for real correspondence.
+
+Two skills ship in this pack:
+
+| Skill | What it does | Needs |
+|---|---|---|
+| **`outlook-graph`** | Live Microsoft 365 mail and calendar via the Graph API | OAuth, network |
+| **`pst-to-markdown`** | Turns a PST archive into integrity-verified markdown, offline | Nothing but a file |
+
+They cover the two halves of the same problem: the mail you are handling now, and the mail you were handed in a box. `pst-to-markdown` needs no credentials and makes no network calls - it reads a file on disk.
 
 ## Why it is different
 
@@ -50,7 +59,7 @@ Read your inbox, draft and send properly formatted replies and forwards, triage 
 - Respond to invitations (accept / decline / tentative, with comment) and cancel meetings you organise
 - Free/busy availability; all times are wall-clock in your timezone, with day/week/free windows offset-qualified so they cannot drift across a midnight boundary
 
-> **Set `OUTLOOK_TZ` if your machine is not in your own timezone.** Calendar times default to the *system* timezone; on a server or container that is usually UTC, which would report a 14:00 London meeting as 13:00. Export `OUTLOOK_TZ=Europe/London` (or your zone) — the calendar script warns you when it is falling back to UTC.
+> **Set `OUTLOOK_TZ` if your machine is not in your own timezone.** Calendar times default to the *system* timezone; on a server or container that is usually UTC, which would report a 14:00 London meeting as 13:00. Export `OUTLOOK_TZ=Europe/London` (or your zone) - the calendar script warns you when it is falling back to UTC.
 
 **Accounts**
 - Multiple accounts under `~/.outlook-graph/<account>/`, selected by `--account` flag or `OUTLOOK_ACCOUNT` env var; one Azure app registration can be reused across mailboxes
@@ -106,13 +115,44 @@ You normally just talk to the skill in plain language, but every command is also
 
 All scripts accept `--account <name>` / `-a <name>` (or `OUTLOOK_ACCOUNT`) before the command.
 
+## PST archives
+
+`pst-to-markdown` turns an Outlook PST export into a directory of markdown you can grep, diff and keep. Ask it in plain language (*"extract archive.pst"*), or drive it directly:
+
+```bash
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py archive.pst ./out/ --verbose
+```
+
+Each email becomes a folder holding `email.md` (YAML frontmatter: message id, date, from/to/cc, subject, attachment hashes), the original `email.eml`, its attachments, and a `checksums.sha256`. A master `manifest.sha256` hashes every checksum file plus the index and records the source PST's own hash, so the whole extraction verifies in one command:
+
+```bash
+sha256sum -c manifest.sha256
+```
+
+That chain of custody is the point: it is built for archives someone will later ask you to stand behind. `--append` re-runs incrementally by Message-ID, and extraction falls back from `libratom` to `readpst` to a directory of pre-extracted `.eml` files. Nothing is uploaded and nothing is sent.
+
+| Flag | Purpose |
+|---|---|
+| `--append` | Add only emails not already extracted (matched on Message-ID) |
+| `--include-deleted` | Include deleted items |
+| `--timezone TZ` | Render dates in a target timezone (default UTC) |
+| `--owner-email` | Fix `MAILER-DAEMON` senders in sent items |
+| `--verbose` | Per-email logging |
+
 ## Development
 
 Want to hack on this skill or run it from source with live edits? See [`docs/dev-setup.md`](docs/dev-setup.md).
 
 ## Requirements
 
-`azure-cli` · `jq` · `curl` · `pandoc` (optional, for markdown-formatted emails)
+Checked per skill - a missing dependency skips that skill rather than failing the install, so you can take either half on its own.
+
+| Skill | Required | Optional |
+|---|---|---|
+| `outlook-graph` | `azure-cli` · `jq` · `curl` | `pandoc` (markdown-formatted emails) |
+| `pst-to-markdown` | `python3` | `readpst` (`pst-utils`; fallback backend if `libratom` fails) |
+
+`pst-to-markdown` provisions its own virtualenv on install (`libratom`, `html2text`, `python-dateutil`, `tqdm`).
 
 ## Credentials and privacy
 

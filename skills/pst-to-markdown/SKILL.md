@@ -16,7 +16,7 @@ Extract emails from Outlook PST files into an organised, integrity-verified arch
 
 ```bash
 # Set up Python environment (one-time)
-~/.claude/skills/pst-to-markdown/setup.sh
+${CLAUDE_SKILL_DIR}/setup.sh
 ```
 
 ### System Dependencies (optional fallback)
@@ -39,19 +39,19 @@ Extract all emails from a PST file into markdown:
 
 ```bash
 # Basic extraction
-~/.claude/skills/pst-to-markdown/.venv/bin/python ~/.claude/skills/pst-to-markdown/scripts/extract_pst.py /path/to/file.pst /path/to/output/
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/
 
 # Verbose output with progress
-~/.claude/skills/pst-to-markdown/.venv/bin/python ~/.claude/skills/pst-to-markdown/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --verbose
 
 # Include deleted items
-~/.claude/skills/pst-to-markdown/.venv/bin/python ~/.claude/skills/pst-to-markdown/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --include-deleted --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --include-deleted --verbose
 
 # Set timezone for date display
-~/.claude/skills/pst-to-markdown/.venv/bin/python ~/.claude/skills/pst-to-markdown/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --timezone "Europe/London"
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --timezone "Europe/London"
 
 # Fix MAILER-DAEMON sent items (provide the PST owner's email)
-~/.claude/skills/pst-to-markdown/.venv/bin/python ~/.claude/skills/pst-to-markdown/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --owner-email "user@example.com"
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --owner-email "user@example.com"
 ```
 
 ### Incremental Extraction (Append Mode)
@@ -59,7 +59,7 @@ Extract all emails from a PST file into markdown:
 Add only new emails (skips already-extracted messages by Message-ID):
 
 ```bash
-~/.claude/skills/pst-to-markdown/.venv/bin/python ~/.claude/skills/pst-to-markdown/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --append --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --append --verbose
 ```
 
 ### Extract from Pre-Extracted .eml Directory
@@ -67,7 +67,7 @@ Add only new emails (skips already-extracted messages by Message-ID):
 If emails were already extracted with readpst elsewhere, point at the directory:
 
 ```bash
-~/.claude/skills/pst-to-markdown/.venv/bin/python ~/.claude/skills/pst-to-markdown/scripts/extract_pst.py /path/to/eml-directory/ /path/to/output/
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/eml-directory/ /path/to/output/
 ```
 
 ## Output Structure
@@ -122,9 +122,9 @@ extract_pst.py [-h] [--include-deleted] [--timezone TZ] [--verbose] [--append] [
 
 The tool tries backends in priority order:
 
-1. **libratom** (Python) — preferred, installed via requirements.txt
-2. **readpst** (system CLI) — fallback, from pst-utils package
-3. **Directory mode** — processes pre-extracted .eml files directly
+1. **libratom** (Python) - preferred, installed via requirements.txt
+2. **readpst** (system CLI) - fallback, from pst-utils package
+3. **Directory mode** - processes pre-extracted .eml files directly
 
 ## Integrity Verification
 
@@ -138,11 +138,11 @@ To verify: `sha256sum -c manifest.sha256`
 
 ## Workflow: Extract and Search
 
-Extract, then search the markdown with ripgrep. There is no semantic index (the ChromaDB `repo-search` skill was retired 14 Jul 2026).
+Extract, then search the markdown with ripgrep. There is no semantic index - the output is plain files on disk, so use whatever search you already trust.
 
 ```bash
 # Step 1: Extract
-~/.claude/skills/pst-to-markdown/.venv/bin/python ~/.claude/skills/pst-to-markdown/scripts/extract_pst.py archive.pst ./email-output/ --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py archive.pst ./email-output/ --verbose
 
 # Step 2: Search the output
 rg -i "settlement agreement" ./email-output/ -l

@@ -14,3 +14,8 @@ inbox/
 
 # Local agent tooling state
 .serena/
+
+# Python venv provisioned by pst-to-markdown/setup.sh
+.venv/
+__pycache__/
+*.pyc
