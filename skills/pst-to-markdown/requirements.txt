@@ -1,0 +1,4 @@
+libratom>=0.6.0
+html2text>=2020.1.16
+python-dateutil
+tqdm

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install the Outlook skill into ~/.claude/skills/ as a live symlink install.
+# Install the Outlook skill pack into ~/.claude/skills/ as a live symlink install.
 #
 # SKILL.md references scripts via ${CLAUDE_SKILL_DIR}, which Claude Code
 # substitutes to the skill's own directory for personal, project, and plugin
@@ -12,43 +12,77 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_ROOT="$HOME/.claude/skills"
 
-echo "=== Outlook skill installer (Claude Code) ==="
+echo "=== Outlook skill pack installer (Claude Code) ==="
 echo
 
-# --- Dependencies ---
-MISSING=""
-command -v az >/dev/null 2>&1   || MISSING="$MISSING azure-cli"
-command -v jq >/dev/null 2>&1   || MISSING="$MISSING jq"
-command -v curl >/dev/null 2>&1 || MISSING="$MISSING curl"
-if [ -n "$MISSING" ]; then
-  echo "Missing required dependencies:$MISSING"
-  echo "  macOS:  brew install$MISSING"
-  echo "  Ubuntu: sudo apt install$MISSING"
-  exit 1
-fi
-command -v pandoc >/dev/null 2>&1 || echo "Optional: pandoc not found (needed for markdown-formatted emails)."
-echo "Dependencies OK."
+# --- Dependencies, per skill ---
+# Checked per skill rather than globally: the two skills share no dependencies,
+# so a missing azure-cli must not block someone who only wants pst-to-markdown.
+# A skill whose required tools are absent is skipped with a reason, not fatal.
+missing_for() {
+  local skill="$1" missing=""
+  case "$skill" in
+    outlook-graph)
+      command -v az   >/dev/null 2>&1 || missing="$missing azure-cli"
+      command -v jq   >/dev/null 2>&1 || missing="$missing jq"
+      command -v curl >/dev/null 2>&1 || missing="$missing curl"
+      ;;
+    pst-to-markdown)
+      command -v python3 >/dev/null 2>&1 || missing="$missing python3"
+      ;;
+  esac
+  echo "$missing"
+}
+
+command -v pandoc  >/dev/null 2>&1 || echo "Optional: pandoc not found (needed for markdown-formatted emails)."
+command -v readpst >/dev/null 2>&1 || echo "Optional: readpst not found (pst-utils; fallback PST backend if libratom fails)."
 echo
 
 # --- Install each skill in this repo as a full-directory symlink ---
 mkdir -p "$SKILLS_ROOT"
+INSTALLED=0
 for src in "$SCRIPT_DIR"/skills/*/; do
   src="${src%/}"
   name="$(basename "$src")"
   target="$SKILLS_ROOT/$name"
+
+  MISSING="$(missing_for "$name")"
+  if [ -n "$MISSING" ]; then
+    echo "Skipping '$name' - missing required:$MISSING"
+    echo "  macOS:  brew install$MISSING"
+    echo "  Ubuntu: sudo apt install$MISSING"
+    continue
+  fi
+
   echo "Installing '$name' -> $target"
   rm -rf "$target"            # replace any prior copy or partial-symlink install
   ln -sfn "$src" "$target"    # whole-directory symlink; ${CLAUDE_SKILL_DIR} resolves it
   chmod +x "$src"/scripts/*.sh 2>/dev/null || true
+  INSTALLED=$((INSTALLED + 1))
+
+  # Skills carrying a setup.sh provision their own environment (pst-to-markdown
+  # builds a venv for libratom). Non-fatal: the skill is installed either way.
+  if [ -x "$src/setup.sh" ]; then
+    echo "  Running $name setup..."
+    "$src/setup.sh" || echo "  Setup failed for '$name'; re-run $src/setup.sh when ready."
+  fi
 done
+
+if [ "$INSTALLED" -eq 0 ]; then
+  echo
+  echo "Nothing installed - every skill was missing a required dependency."
+  exit 1
+fi
 
 echo
 echo "Installed as directory symlinks - all edits (scripts and SKILL.md) are live. Re-run only when adding a new skill."
 echo
 
-# --- Setup / credentials ---
+# --- Setup / credentials (outlook-graph only; pst-to-markdown needs none) ---
 SETUP="$SKILLS_ROOT/outlook-graph/scripts/outlook-graph-setup.sh"
-if [ -f "$HOME/.outlook-graph/default/credentials.json" ] || [ -f "$HOME/.outlook-graph/credentials.json" ]; then
+if [ ! -e "$SKILLS_ROOT/outlook-graph" ]; then
+  echo "outlook-graph was not installed - skipping credential setup."
+elif [ -f "$HOME/.outlook-graph/default/credentials.json" ] || [ -f "$HOME/.outlook-graph/credentials.json" ]; then
   echo "Existing Outlook credentials found. Re-run setup any time with:"
   echo "  $SETUP"
 else
@@ -58,4 +92,4 @@ else
 fi
 
 echo
-echo "Done. Try: 'check my email' or 'what's on my calendar today'"
+echo "Done. Try: 'check my email', 'what's on my calendar today', or 'extract archive.pst'"
