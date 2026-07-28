@@ -17,7 +17,6 @@ update the PST file and re-run extraction to add only new emails.
 import argparse
 import csv
 import hashlib
-import os
 import re
 import subprocess
 import sys
@@ -205,7 +204,7 @@ class EmailExtractor:
 
         print(f"Loading existing index from {index_path}...")
         try:
-            with open(index_path, 'r', newline='', encoding='utf-8') as f:
+            with open(index_path, newline='', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     msg_id = row.get('message_id', '').strip()
