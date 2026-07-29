@@ -72,6 +72,8 @@ sibling `outlook-graph` skill and append it — the two produce the same shape.
 ${CLAUDE_SKILL_DIR}/../outlook-graph/scripts/outlook-graph-mail.sh \
   export "Inbox/Clients" ./staging/ --since 2026-07-01
 
+# --count N caps how many messages export writes, newest first (default 1000)
+
 # 2. Append it to the existing archive
 ${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py \
   ./staging/ ./archive/ --append

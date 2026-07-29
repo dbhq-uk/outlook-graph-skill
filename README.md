@@ -138,6 +138,8 @@ ${CLAUDE_SKILL_DIR}/../outlook-graph/scripts/outlook-graph-mail.sh export "Inbox
 ${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py ./staging/ ./archive/ --append
 ```
 
+`export` also takes `--count N` to cap how many messages it writes, newest first (default 1000).
+
 | Flag | Purpose |
 |---|---|
 | `--append` | Add only emails not already extracted (matched on Message-ID) |

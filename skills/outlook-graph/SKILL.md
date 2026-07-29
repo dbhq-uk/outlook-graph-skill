@@ -276,6 +276,9 @@ ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./stagi
 # Only what arrived since a date (use the archive's newest entry)
 ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./staging/ --since 2026-07-01
 
+# Cap how many messages are exported, newest first (default 1000)
+${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./staging/ --count 50
+
 # Then append into the archive - dedupes by Message-ID, so an overlapping
 # --since window is harmless
 ${CLAUDE_SKILL_DIR}/../pst-to-markdown/.venv/bin/python \
