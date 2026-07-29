@@ -41,7 +41,7 @@ They cover the two halves of the same problem: the mail you are handling now, an
 - Inbox, unread, focused, sent, drafts, flagged, and any folder by name (recursive, `Parent/Child` paths supported)
 - Full-message reading with attachment listing; whole-conversation thread view (oldest first)
 - Search: free text or KQL field operators (`subject:`, `from:`, `to:`, `body:`, AND/OR/NOT), paged up to 1000 results, newest first
-- Flag / unflag for follow-up, categories (list master categories, apply, clear), junk / not-junk, mark read/unread
+- Flag / unflag for follow-up, categories (list, create, recolour and delete master categories; set, add, remove or clear on a message), junk / not-junk, mark read/unread
 
 **Email - writing and sending**
 - Plain and markdown drafts, reply-all-safe replies, forwards with an optional markdown comment, follow-up chasers
