@@ -266,7 +266,7 @@ Multiple attachments can be added by calling `attach` multiple times on the same
 
 ### Exporting Mail to a Markdown Archive
 
-Write a folder's messages out as raw `.eml`, then let `pst-to-markdown` append
+Write a folder's messages out as raw `.eml`, then let `outlook-to-md` append
 them to an archive. The PST backfills history; this keeps it current.
 
 ```bash
@@ -281,8 +281,8 @@ ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./stagi
 
 # Then append into the archive - dedupes by Message-ID, so an overlapping
 # --since window is harmless
-${CLAUDE_SKILL_DIR}/../pst-to-markdown/.venv/bin/python \
-  ${CLAUDE_SKILL_DIR}/../pst-to-markdown/scripts/extract_pst.py \
+${CLAUDE_SKILL_DIR}/../outlook-to-md/.venv/bin/python \
+  ${CLAUDE_SKILL_DIR}/../outlook-to-md/scripts/extract_pst.py \
   ./staging/ ./archive/ --append
 ```
 

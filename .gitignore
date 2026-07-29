@@ -16,7 +16,7 @@ inbox/
 .serena/
 .superpowers/
 
-# Python venv provisioned by pst-to-markdown/setup.sh
+# Python venv provisioned by outlook-to-md/setup.sh
 .venv/
 __pycache__/
 *.pyc

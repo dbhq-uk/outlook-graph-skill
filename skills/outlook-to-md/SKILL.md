@@ -1,11 +1,11 @@
 ---
-name: pst-to-markdown
-description: Extract emails from Outlook PST files into organised markdown archives. Use when needing to convert PST files to markdown, extract email archives, process Outlook exports, or create searchable email collections. Trigger on phrases like "extract pst", "convert pst", "pst to markdown", "email archive", "extract outlook".
+name: outlook-to-md
+description: Turn Outlook mail into organised markdown archives - from a PST export, or from live mail exported by the outlook-graph skill. Use when needing to convert PST files to markdown, extract email archives, process Outlook exports, create searchable email collections, or keep an existing archive current. Trigger on phrases like "extract pst", "convert pst", "pst to markdown", "outlook to markdown", "email archive", "extract outlook", "update my email archive".
 ---
 
-# PST Email Extraction
+# Outlook Email to Markdown
 
-Extract emails from Outlook PST files into an organised, integrity-verified archive of markdown files, raw email backups, and attachments. Supports full extraction and incremental append mode.
+Turn Outlook mail into an organised, integrity-verified archive of markdown files, raw email backups, and attachments. Reads a PST export, or a directory of `.eml` files - which is how live mail arrives, via the sibling `outlook-graph` skill's `export` verb. Supports full extraction and incremental append mode, so one archive can span both.
 
 ## Prerequisites
 

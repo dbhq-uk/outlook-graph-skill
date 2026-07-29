@@ -22,7 +22,7 @@ missing_for() {
       command -v jq   >/dev/null 2>&1 || missing="$missing jq"
       command -v curl >/dev/null 2>&1 || missing="$missing curl"
       ;;
-    pst-to-markdown)
+    outlook-to-md)
       command -v python3 >/dev/null 2>&1 || missing="$missing python3"
       ;;
   esac
@@ -32,6 +32,16 @@ missing_for() {
 command -v pandoc  >/dev/null 2>&1 || echo "Optional: pandoc not found (needed for markdown-formatted emails)."
 command -v readpst >/dev/null 2>&1 || echo "Optional: readpst not found (pst-utils; fallback PST backend if libratom fails)."
 echo
+
+# pst-to-markdown became outlook-to-md once it also ingested live mail. Its old
+# Codex install holds symlinks into a directory that no longer exists, so clear
+# it out rather than leave a broken duplicate skill beside the new one.
+for stale in pst-to-markdown; do
+  if [ -e "$SKILLS_ROOT/$stale" ] || [ -L "$SKILLS_ROOT/$stale" ]; then
+    echo "Removing renamed skill '$stale' (now outlook-to-md)"
+    rm -rf "$SKILLS_ROOT/$stale"
+  fi
+done
 
 INSTALLED=0
 for src in "$SCRIPT_DIR"/skills/*/; do

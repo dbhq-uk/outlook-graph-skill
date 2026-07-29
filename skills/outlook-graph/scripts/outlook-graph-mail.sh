@@ -2268,7 +2268,7 @@ ${existing_body}"
         out_dir="$3"
         if [ -z "$folder_name" ] || [ -z "$out_dir" ]; then
             echo "Usage: outlook-graph-mail.sh export <folder> <output-dir> [--since YYYY-MM-DD] [--count N]"
-            echo "       Writes each message as raw .eml for pst-to-markdown to append."
+            echo "       Writes each message as raw .eml for outlook-to-md to append."
             exit 1
         fi
         shift 3

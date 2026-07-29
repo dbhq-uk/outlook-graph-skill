@@ -1,5 +1,5 @@
 #!/bin/bash
-# Set up the Python virtual environment for the pst-to-markdown skill.
+# Set up the Python virtual environment for the outlook-to-md skill.
 #
 # The awkward part is libratom, the preferred extraction backend. It pins
 # numpy==1.23.5, whose newest wheel is cp311 - so on Python 3.12+ pip tries to
@@ -17,7 +17,7 @@ set -e
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$SKILL_DIR/.venv"
 
-echo "==> Setting up pst-to-markdown Python environment..."
+echo "==> Setting up outlook-to-md Python environment..."
 
 # --- Choose an interpreter -------------------------------------------------
 # Newest first, capped at 3.11: the cap is libratom's, not a preference.
@@ -69,7 +69,7 @@ else
     "$VENV/bin/pip" install -r "$VENV/requirements-no-libratom.txt" -q
 fi
 
-echo "==> pst-to-markdown environment ready"
+echo "==> outlook-to-md environment ready"
 echo
 echo "Dependencies installed:"
 "$VENV/bin/pip" list --format=columns 2>/dev/null | grep -iE "libratom|html2text|dateutil|tqdm" || true

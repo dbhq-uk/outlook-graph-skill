@@ -1,11 +1,11 @@
 # Keeping a PST archive current from live mail
 
 **Status:** design, approved 29 July 2026
-**Skills touched:** `outlook-graph`, `pst-to-markdown`
+**Skills touched:** `outlook-graph`, `outlook-to-md`
 
 ## Problem
 
-`pst-to-markdown` turns a PST export into a markdown archive. That archive is
+`outlook-to-md` turns a PST export into a markdown archive. That archive is
 frozen the moment it is produced: it holds the mail that was in the PST and
 nothing after it. Mail that arrives from then on lives only in Outlook.
 
@@ -95,7 +95,7 @@ which is exactly what `--append` deduplicates on.
 
 `export` writes plain `.eml` and stops. It does not know about `email.md`,
 checksums or the index. This keeps the skills independently changeable: the
-archive format belongs to `pst-to-markdown` alone, and `outlook-graph` gains a
+archive format belongs to `outlook-to-md` alone, and `outlook-graph` gains a
 generally useful export verb rather than a coupling to another skill's
 on-disk format.
 
@@ -122,7 +122,7 @@ outlook-graph-mail.sh export <folder> <output-dir> [--since YYYY-MM-DD] [--count
   id guarantees uniqueness when two messages share a second.
 - `--since YYYY-MM-DD` adds a Graph `$filter` on `receivedDateTime`. Chosen
   over reading a watermark out of `index.csv` deliberately: a watermark would
-  couple `outlook-graph` to `pst-to-markdown`'s file format and stop the two
+  couple `outlook-graph` to `outlook-to-md`'s file format and stop the two
   changing independently. `--append` still backstops any overlap, so a `--since`
   that reaches back too far costs bandwidth and nothing else.
 - `--count N` caps total messages, for spot checks.
@@ -139,8 +139,8 @@ In both `SKILL.md` files:
 ```bash
 outlook-graph-mail.sh export Inbox/Cherise ./staging/ --since 2026-07-01
 
-${CLAUDE_SKILL_DIR}/../pst-to-markdown/.venv/bin/python \
-  ${CLAUDE_SKILL_DIR}/../pst-to-markdown/scripts/extract_pst.py \
+${CLAUDE_SKILL_DIR}/../outlook-to-md/.venv/bin/python \
+  ${CLAUDE_SKILL_DIR}/../outlook-to-md/scripts/extract_pst.py \
   ./staging/ ./archive/ --append
 ```
 
