@@ -522,6 +522,153 @@ class TestAppendRoundTrip(unittest.TestCase):
             self.assertEqual(found[0].parent.parent.parent.name, "Inbox")
 
 
+class TestAppendWithoutMessageId(unittest.TestCase):
+    """Documented limitation (see both SKILL.md caveats): dedupe needs a Message-ID.
+
+    _save_email only checks self.existing_message_ids when message_id is
+    truthy, so a message with no Message-ID header has no key to dedupe
+    against and is re-archived on every overlapping append. This is not fixed
+    here - a content-hash fallback is a separate design decision, out of
+    scope for the caveat this pins - so the test exists to keep the
+    behaviour honest: if it ever stops reproducing, the SKILL.md caveats
+    this test backs are stale and must be revisited alongside it.
+    """
+
+    EML_NO_MESSAGE_ID = (
+        "Date: Tue, 29 Jul 2026 10:12:00 +0000\n"
+        "From: Alice <alice@example.com>\n"
+        "To: Bob <bob@example.com>\n"
+        "Subject: Draft with no Message-ID\n"
+        "Content-Type: text/plain; charset=utf-8\n"
+        "\n"
+        "Body text here.\n"
+    )
+
+    def test_headerless_message_is_duplicated_on_append(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            staging = Path(tmp) / "staging" / "Inbox"
+            staging.mkdir(parents=True)
+            (staging / "20260729_101200_abc.eml").write_text(self.EML_NO_MESSAGE_ID)
+            out = Path(tmp) / "out"
+            source = Path(tmp) / "staging"
+
+            extract_pst.EmailExtractor(pst_path=source, output_dir=out).extract()
+            first_rows = (out / "index.csv").read_text().splitlines()
+            first_folders = sorted(p.parent.name for p in out.rglob("email.md"))
+            self.assertEqual(len(first_folders), 1)
+
+            # Same staging directory, re-appended - the overlap a --since
+            # window would normally produce harmlessly.
+            extract_pst.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
+            second_rows = (out / "index.csv").read_text().splitlines()
+            second_folders = sorted(p.parent.name for p in out.rglob("email.md"))
+
+            self.assertEqual(
+                len(second_folders),
+                2,
+                "a header-less message was not duplicated - if dedupe now covers "
+                "this case, update the SKILL.md caveats and this test together",
+            )
+            self.assertTrue(any(f.endswith("-001") for f in second_folders))
+            self.assertEqual(len(second_rows), len(first_rows) + 1, "expected one extra index row")
+
+
+class TestManifestProvenance(unittest.TestCase):
+    """--append must not erase the archive's original source hash.
+
+    Regression pin for the chain-of-custody bug: _generate_manifest used to
+    regenerate manifest.sha256 from scratch every run, keyed only on the
+    CURRENT self.pst_path - so appending a staging directory into a
+    PST-derived archive silently dropped the PST's own hash, even though
+    README.md promises the manifest "records the source PST's own hash".
+    """
+
+    def _extract_stub_backend(self, pst_path, output_dir, **kwargs):
+        """Run extract() with the real PST-parsing backends stubbed out.
+
+        The provenance/manifest logic under test does not depend on what a
+        real backend would parse out of pst_path - only on pst_path's own
+        identity and hash - so stubbing avoids needing a real PST fixture
+        (this suite deliberately carries none, see the module docstring) or
+        an installed backend. Directory inputs are unaffected: they never
+        reach these two methods, so append-from-a-directory below exercises
+        the real _process_eml_directory code path.
+        """
+        extractor = extract_pst.EmailExtractor(pst_path=pst_path, output_dir=output_dir, **kwargs)
+        with patch.object(extractor, "_extract_with_libratom", lambda: None), patch.object(
+            extractor, "_extract_with_readpst", lambda: None
+        ):
+            extractor.extract()
+        return extractor
+
+    def test_append_preserves_the_original_source_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pst_path = Path(tmp) / "archive.pst"
+            pst_path.write_bytes(b"stand-in PST bytes; only the hash matters here")
+            original_hash = extract_pst.compute_sha256(pst_path)
+
+            out = Path(tmp) / "out"
+            self._extract_stub_backend(pst_path, out)
+
+            manifest_text = (out / "manifest.sha256").read_text()
+            self.assertIn(original_hash, manifest_text, "sanity check: hash not even in the first manifest")
+
+            # Append from an unrelated staging directory - a directory has no
+            # hash of its own, which is exactly the case that lost the
+            # original PST hash before the fix.
+            staging = Path(tmp) / "staging"
+            staging.mkdir()
+            self._extract_stub_backend(staging, out, append=True)
+
+            manifest_text = (out / "manifest.sha256").read_text()
+            self.assertIn(original_hash, manifest_text, "the original PST's hash did not survive the append")
+
+            # Stable across repeated runs: appending the same staging
+            # directory again must not grow the source list without bound.
+            self._extract_stub_backend(staging, out, append=True)
+            manifest_text = (out / "manifest.sha256").read_text()
+            self.assertEqual(
+                manifest_text.count("source=archive.pst"),
+                1,
+                "repeating the same append duplicated the original source entry",
+            )
+            self.assertIn(original_hash, manifest_text)
+
+    def test_index_md_totals_describe_the_archive_not_just_the_run(self):
+        """The companion bug: index.md's totals used self.stats, a run-only counter.
+
+        _load_existing_index rebuilds folder_counts/date_range from existing
+        rows but never touches self.stats (deliberately - see its comment),
+        so an append run's index.md showed only the new mail's count, not the
+        archive's. This pins the fix: totals come from the merged
+        self.index_data instead.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            staging1 = Path(tmp) / "staging1" / "Inbox"
+            staging1.mkdir(parents=True)
+            (staging1 / "a.eml").write_text(
+                "Message-ID: <a@example.com>\n"
+                "Date: Tue, 29 Jul 2026 10:12:00 +0000\n"
+                "From: Alice <alice@example.com>\nTo: Bob <bob@example.com>\n"
+                "Subject: First\nContent-Type: text/plain; charset=utf-8\n\nBody.\n"
+            )
+            out = Path(tmp) / "out"
+            extract_pst.EmailExtractor(pst_path=Path(tmp) / "staging1", output_dir=out).extract()
+
+            staging2 = Path(tmp) / "staging2" / "Inbox"
+            staging2.mkdir(parents=True)
+            (staging2 / "b.eml").write_text(
+                "Message-ID: <b@example.com>\n"
+                "Date: Wed, 30 Jul 2026 09:00:00 +0000\n"
+                "From: Carol <carol@example.com>\nTo: Bob <bob@example.com>\n"
+                "Subject: Second\nContent-Type: text/plain; charset=utf-8\n\nBody.\n"
+            )
+            extract_pst.EmailExtractor(pst_path=Path(tmp) / "staging2", output_dir=out, append=True).extract()
+
+            index_md = (out / "index.md").read_text()
+            self.assertIn("**Total Emails:** 2", index_md, "totals reflect this run only, not the whole archive")
+
+
 class TestModuleContract(unittest.TestCase):
     """Guards against the optional-dependency wiring being removed."""
 
