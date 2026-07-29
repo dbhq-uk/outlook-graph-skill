@@ -1503,7 +1503,13 @@ ${existing_body}"
                     echo "Usage: outlook-graph-mail.sh categorize <message-id> $3 <category>"
                     exit 1
                 fi
-                current=$(api_call GET "/me/messages/$msg_id?\$select=categories" | jq -c '.categories // []')
+                # Note: get-then-patch is not atomic; concurrent --add/--remove calls on the
+                # same message can race and the later write may drop the earlier change.
+                # Graph offers no compare-and-swap, so this limitation is accepted for
+                # single-user automation. The fix would require server-side support.
+                current_raw=$(api_call GET "/me/messages/$msg_id?\$select=categories")
+                die_on_error "$current_raw" "reading current categories"
+                current=$(printf '%s' "$current_raw" | jq -c '.categories // []')
                 if [ "$3" = "--add" ]; then
                     updated=$(printf '%s' "$current" | categories_add "$one")
                     if [ -z "$(resolve_category_id "$one")" ]; then
