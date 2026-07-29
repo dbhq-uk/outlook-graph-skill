@@ -49,6 +49,11 @@ for src in "$SCRIPT_DIR"/skills/*/; do
   mkdir -p "$target"
   [ -d "$src/scripts" ]    && ln -sfn "$src/scripts"    "$target/scripts"
   [ -d "$src/references" ] && ln -sfn "$src/references" "$target/references"
+  # The rewritten SKILL.md tells the user to run ${CLAUDE_SKILL_DIR}/setup.sh,
+  # so setup.sh (and the requirements.txt it reads) must exist at $target too -
+  # otherwise the one command the skill documents resolves to nothing.
+  [ -f "$src/setup.sh" ]         && ln -sfn "$src/setup.sh"         "$target/setup.sh"
+  [ -f "$src/requirements.txt" ] && ln -sfn "$src/requirements.txt" "$target/requirements.txt"
   chmod +x "$src"/scripts/*.sh 2>/dev/null || true
   INSTALLED=$((INSTALLED + 1))
 
