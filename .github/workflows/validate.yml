@@ -163,9 +163,9 @@ jobs:
           python -c "from libratom.lib.pff import PffArchive; print('libratom import OK')"
           python -c "
           import sys; sys.path.insert(0, 'scripts')
-          import extract_pst
-          assert extract_pst.USE_LIBRATOM, 'libratom installed but not detected'
-          print('extract_pst detects libratom')
+          import outlook_to_md
+          assert outlook_to_md.USE_LIBRATOM, 'libratom installed but not detected'
+          print('outlook_to_md detects libratom')
           "
 
       - name: Run the suite against the full dependency set

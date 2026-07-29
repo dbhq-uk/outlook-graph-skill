@@ -282,7 +282,7 @@ ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./stagi
 # Then append into the archive - dedupes by Message-ID, so an overlapping
 # --since window is harmless
 ${CLAUDE_SKILL_DIR}/../outlook-to-md/.venv/bin/python \
-  ${CLAUDE_SKILL_DIR}/../outlook-to-md/scripts/extract_pst.py \
+  ${CLAUDE_SKILL_DIR}/../outlook-to-md/scripts/outlook_to_md.py \
   ./staging/ ./archive/ --append
 ```
 

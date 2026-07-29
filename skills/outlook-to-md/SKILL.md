@@ -39,19 +39,19 @@ Extract all emails from a PST file into markdown:
 
 ```bash
 # Basic extraction
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py /path/to/file.pst /path/to/output/
 
 # Verbose output with progress
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py /path/to/file.pst /path/to/output/ --verbose
 
 # Include deleted items
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --include-deleted --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py /path/to/file.pst /path/to/output/ --include-deleted --verbose
 
 # Set timezone for date display
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --timezone "Europe/London"
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py /path/to/file.pst /path/to/output/ --timezone "Europe/London"
 
 # Fix MAILER-DAEMON sent items (provide the PST owner's email)
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --owner-email "user@example.com"
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py /path/to/file.pst /path/to/output/ --owner-email "user@example.com"
 ```
 
 ### Incremental Extraction (Append Mode)
@@ -59,7 +59,7 @@ ${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py 
 Add only new emails (skips already-extracted messages by Message-ID):
 
 ```bash
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --append --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py /path/to/file.pst /path/to/output/ --append --verbose
 ```
 
 ### Keeping an Archive Current from Live Mail
@@ -75,7 +75,7 @@ ${CLAUDE_SKILL_DIR}/../outlook-graph/scripts/outlook-graph-mail.sh \
 # --count N caps how many messages export writes, newest first (default 1000)
 
 # 2. Append it to the existing archive
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py \
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py \
   ./staging/ ./archive/ --append
 ```
 
@@ -95,7 +95,7 @@ content-hash fallback.
 If emails were already extracted with readpst elsewhere, point at the directory:
 
 ```bash
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/eml-directory/ /path/to/output/
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py /path/to/eml-directory/ /path/to/output/
 ```
 
 ## Output Structure
@@ -133,7 +133,7 @@ Each `email.md` contains:
 ## CLI Reference
 
 ```
-extract_pst.py [-h] [--include-deleted] [--timezone TZ] [--verbose] [--append] [--owner-email EMAIL] pst_file output_dir
+outlook_to_md.py [-h] [--include-deleted] [--timezone TZ] [--verbose] [--append] [--owner-email EMAIL] pst_file output_dir
 ```
 
 | Argument | Description |
@@ -171,7 +171,7 @@ Extract, then search the markdown with ripgrep. There is no semantic index - the
 
 ```bash
 # Step 1: Extract
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py archive.pst ./email-output/ --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py archive.pst ./email-output/ --verbose
 
 # Step 2: Search the output
 rg -i "settlement agreement" ./email-output/ -l

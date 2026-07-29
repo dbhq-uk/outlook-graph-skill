@@ -120,7 +120,7 @@ All scripts accept `--account <name>` / `-a <name>` (or `OUTLOOK_ACCOUNT`) befor
 `outlook-to-md` turns an Outlook PST export into a directory of markdown you can grep, diff and keep. Ask it in plain language (*"extract archive.pst"*), or drive it directly:
 
 ```bash
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py archive.pst ./out/ --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py archive.pst ./out/ --verbose
 ```
 
 Each email becomes a folder holding `email.md` (YAML frontmatter: message id, date, from/to/cc, subject, attachment hashes), the original `email.eml`, its attachments, and a `checksums.sha256`. A master `manifest.sha256` hashes every checksum file plus the index and records the source PST's own hash, so the whole extraction verifies in one command:
@@ -135,7 +135,7 @@ A PST is a snapshot, so the two skills join up to carry an archive forward: `out
 
 ```bash
 ${CLAUDE_SKILL_DIR}/../outlook-graph/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./staging/ --since 2026-07-01
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py ./staging/ ./archive/ --append
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py ./staging/ ./archive/ --append
 ```
 
 `export` also takes `--count N` to cap how many messages it writes, newest first (default 1000).

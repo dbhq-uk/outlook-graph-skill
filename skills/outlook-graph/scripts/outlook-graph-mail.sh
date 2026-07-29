@@ -661,7 +661,7 @@ run_message_search() {
 }
 
 # --- .eml export ------------------------------------------------------------
-# Staging filename for one exported message. extract_pst.py derives the archive
+# Staging filename for one exported message. outlook_to_md.py derives the archive
 # folder name from the message's own headers, so this name only has to be unique
 # and to sort chronologically in a directory listing. The short id is the same
 # 20-character slice the listing commands print, so an id copied off a listing
@@ -2356,8 +2356,8 @@ ${existing_body}"
         fi
         echo
         echo "Append to a markdown archive with:"
-        echo "  extract_pst.py $out_dir <archive-dir> --append"
-        # A caller chaining `export && extract_pst.py --append` must not
+        echo "  outlook_to_md.py $out_dir <archive-dir> --append"
+        # A caller chaining `export && outlook_to_md.py --append` must not
         # proceed past a partial export, so a non-zero failed count is a
         # non-zero exit - checked explicitly (not `[ … ] && exit 1`) because
         # that form as the branch's last command would itself trip `set -e`

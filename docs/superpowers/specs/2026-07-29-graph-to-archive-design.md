@@ -35,20 +35,20 @@ and stays out of this design.
 
 ## Approach
 
-Three behaviours `extract_pst.py` already has make the join almost free:
+Three behaviours `outlook_to_md.py` already has make the join almost free:
 
 | Behaviour | Where |
 |---|---|
-| Accepts a directory of `.eml` in place of a PST | `extract_pst.py:386` |
-| Mirrors that directory's layout into the archive | `extract_pst.py:502`, `618-621` |
-| `--append` skips any Message-ID already in `index.csv` | `extract_pst.py:584` |
+| Accepts a directory of `.eml` in place of a PST | `outlook_to_md.py:386` |
+| Mirrors that directory's layout into the archive | `outlook_to_md.py:502`, `618-621` |
+| `--append` skips any Message-ID already in `index.csv` | `outlook_to_md.py:584` |
 
 ### One blocking bug, found while validating this design
 
 Directory mode does not currently work in the install the skill recommends.
 `extract()` dispatches `if USE_LIBRATOM → libratom, else → readpst`, and the
 directory branch is nested *inside* `_extract_with_readpst`, reachable only
-when `readpst` is also absent (`extract_pst.py:355-390`). So a directory input
+when `readpst` is also absent (`outlook_to_md.py:355-390`). So a directory input
 is only honoured when **both** backends are missing. With libratom installed -
 what `setup.sh` works to achieve and what the "full requirements" CI job
 asserts - the path is handed to `PffArchive` and dies:
@@ -78,7 +78,7 @@ Verified against a patched scratch copy with libratom present: a staging tree
 and `manifest.sha256`. A second run with `--append` processed 0 and skipped 1,
 leaving the index unchanged.
 
-Beyond this fix, `extract_pst.py` needs no changes.
+Beyond this fix, `outlook_to_md.py` needs no changes.
 
 So `staging/Inbox/Cherise/anything.eml` lands at
 `archive/emails/Inbox/Cherise/<date>_<from>_<to>_<subject>/`. The staging
@@ -140,7 +140,7 @@ In both `SKILL.md` files:
 outlook-graph-mail.sh export Inbox/Cherise ./staging/ --since 2026-07-01
 
 ${CLAUDE_SKILL_DIR}/../outlook-to-md/.venv/bin/python \
-  ${CLAUDE_SKILL_DIR}/../outlook-to-md/scripts/extract_pst.py \
+  ${CLAUDE_SKILL_DIR}/../outlook-to-md/scripts/outlook_to_md.py \
   ./staging/ ./archive/ --append
 ```
 
@@ -159,7 +159,7 @@ directory of `.eml` is honoured whatever backends are installed.
 - `helpers_test.sh` - filename construction from a Graph timestamp, `--since`
   rejecting a malformed date rather than sending Graph a filter that silently
   matches nothing, and the listing helper's paging, cap and error propagation.
-- `test_extract_pst.py` - directory dispatch is chosen over libratom for a
+- `test_outlook_to_md.py` - directory dispatch is chosen over libratom for a
   directory input (the regression above), and a round trip that runs twice with
   `--append` and asserts the second run adds no email folders and leaves
   `index.csv` unchanged in row count.
@@ -173,7 +173,7 @@ column would break every existing `index.csv` and anything reading one. The
 column means "the folder this message came from", and it always did.
 
 **Attachments.** `$value` MIME carries attachments inline, so
-`extract_pst.py` extracts and hashes them exactly as it does for PST-sourced
+`outlook_to_md.py` extracts and hashes them exactly as it does for PST-sourced
 mail. No separate attachment fetch is needed.
 
 **Sent items.** Exporting a Sent folder works unchanged. The `--owner-email`

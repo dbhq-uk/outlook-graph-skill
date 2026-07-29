@@ -6,8 +6,8 @@ Extract emails from Outlook PST files into an organized archive of markdown
 files, raw email backups, and attachments with integrity verification.
 
 Usage:
-    python extract_pst.py <pst_file> <output_dir>           # Full extraction
-    python extract_pst.py <pst_file> <output_dir> --append  # Append new emails only
+    python outlook_to_md.py <pst_file> <output_dir>           # Full extraction
+    python outlook_to_md.py <pst_file> <output_dir> --append  # Append new emails only
 
 The --append flag enables incremental extraction: it loads the existing index.csv
 and skips any emails whose Message-ID is already in the archive. This lets you

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for extract_pst.py.
+"""Tests for outlook_to_md.py.
 
 Scope limit, deliberate: this covers the pure helpers and the append-mode index
 loading, not the libratom/readpst extraction drivers. Those need a real PST
@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-import extract_pst  # noqa: E402
+import outlook_to_md  # noqa: E402
 
 INDEX_COLUMNS = [
     "folder_name",
@@ -64,75 +64,75 @@ def index_row(message_id: str, **overrides) -> dict:
 
 class TestSanitizeFilename(unittest.TestCase):
     def test_spaces_become_hyphens(self):
-        self.assertEqual(extract_pst.sanitize_filename("quarterly report"), "quarterly-report")
+        self.assertEqual(outlook_to_md.sanitize_filename("quarterly report"), "quarterly-report")
 
     def test_path_separators_are_stripped(self):
-        result = extract_pst.sanitize_filename("reports/2026/q3")
+        result = outlook_to_md.sanitize_filename("reports/2026/q3")
         self.assertNotIn("/", result)
         self.assertNotIn("\\", result)
 
     def test_windows_reserved_characters_are_stripped(self):
-        result = extract_pst.sanitize_filename('a<b>c:d"e|f?g*h')
+        result = outlook_to_md.sanitize_filename('a<b>c:d"e|f?g*h')
         for char in '<>:"|?*':
             self.assertNotIn(char, result)
 
     def test_repeated_hyphens_collapse(self):
-        self.assertEqual(extract_pst.sanitize_filename("a   -  b"), "a-b")
+        self.assertEqual(outlook_to_md.sanitize_filename("a   -  b"), "a-b")
 
     def test_leading_and_trailing_hyphens_are_dropped(self):
-        self.assertEqual(extract_pst.sanitize_filename("  spaced  "), "spaced")
+        self.assertEqual(outlook_to_md.sanitize_filename("  spaced  "), "spaced")
 
     def test_truncates_to_max_length(self):
-        result = extract_pst.sanitize_filename("x" * 200)
+        result = outlook_to_md.sanitize_filename("x" * 200)
         self.assertEqual(len(result), 50)
 
     def test_max_length_is_configurable(self):
-        result = extract_pst.sanitize_filename("y" * 200, max_length=10)
+        result = outlook_to_md.sanitize_filename("y" * 200, max_length=10)
         self.assertEqual(len(result), 10)
 
     def test_truncation_does_not_leave_a_trailing_hyphen(self):
         # "aaaa bbbb ..." truncated mid-gap would otherwise end in "-".
-        result = extract_pst.sanitize_filename("a" * 49 + " tail", max_length=50)
+        result = outlook_to_md.sanitize_filename("a" * 49 + " tail", max_length=50)
         self.assertFalse(result.endswith("-"))
 
     def test_empty_input_returns_unknown(self):
-        self.assertEqual(extract_pst.sanitize_filename(""), "unknown")
+        self.assertEqual(outlook_to_md.sanitize_filename(""), "unknown")
 
     def test_input_stripped_to_nothing_returns_unknown(self):
-        self.assertEqual(extract_pst.sanitize_filename("///"), "unknown")
+        self.assertEqual(outlook_to_md.sanitize_filename("///"), "unknown")
 
     def test_unicode_is_preserved(self):
-        self.assertIn("café", extract_pst.sanitize_filename("café meeting"))
+        self.assertIn("café", outlook_to_md.sanitize_filename("café meeting"))
 
 
 class TestSanitizeEmail(unittest.TestCase):
     def test_extracts_address_from_display_name_form(self):
-        result = extract_pst.sanitize_email("A Sender <sender@example.com>")
+        result = outlook_to_md.sanitize_email("A Sender <sender@example.com>")
         self.assertIn("sender", result)
         self.assertIn("example.com", result)
         self.assertNotIn("<", result)
 
     def test_at_sign_is_removed_but_dots_survive(self):
-        result = extract_pst.sanitize_email("first.last@example.com")
+        result = outlook_to_md.sanitize_email("first.last@example.com")
         self.assertNotIn("@", result)
         self.assertIn(".", result)
 
     def test_empty_input_returns_unknown(self):
-        self.assertEqual(extract_pst.sanitize_email(""), "unknown")
+        self.assertEqual(outlook_to_md.sanitize_email(""), "unknown")
 
     def test_truncates_at_forty_characters(self):
-        result = extract_pst.sanitize_email("x" * 100 + "@example.com")
+        result = outlook_to_md.sanitize_email("x" * 100 + "@example.com")
         self.assertLessEqual(len(result), 40)
 
 
 class TestParseEmailAddress(unittest.TestCase):
     def test_display_name_and_address(self):
-        name, email = extract_pst.parse_email_address("A Sender <sender@example.com>")
+        name, email = outlook_to_md.parse_email_address("A Sender <sender@example.com>")
         self.assertEqual(name, "A Sender")
         self.assertEqual(email, "sender@example.com")
 
     def test_quoted_display_name(self):
-        name, email = extract_pst.parse_email_address('"Last, First" <a@b.com>')
+        name, email = outlook_to_md.parse_email_address('"Last, First" <a@b.com>')
         self.assertIn("Last", name)
         self.assertEqual(email, "a@b.com")
 
@@ -142,15 +142,15 @@ class TestParseEmailAddress(unittest.TestCase):
         # ("bare@example.com", "bare@example.com"). Harmless -- the index's
         # from_name column just repeats the address -- but it is the current
         # behaviour, and this test will fail loudly if anyone changes it.
-        name, email = extract_pst.parse_email_address("bare@example.com")
+        name, email = outlook_to_md.parse_email_address("bare@example.com")
         self.assertEqual(email, "bare@example.com")
         self.assertEqual(name, "bare@example.com")
 
     def test_empty_input_returns_empty_pair(self):
-        self.assertEqual(extract_pst.parse_email_address(""), ("", ""))
+        self.assertEqual(outlook_to_md.parse_email_address(""), ("", ""))
 
     def test_surrounding_whitespace_is_trimmed(self):
-        name, email = extract_pst.parse_email_address("  A Sender <s@e.com>  ")
+        name, email = outlook_to_md.parse_email_address("  A Sender <s@e.com>  ")
         self.assertEqual(name, "A Sender")
         self.assertEqual(email, "s@e.com")
 
@@ -162,7 +162,7 @@ class TestComputeSha256(unittest.TestCase):
             payload = b"some attachment bytes"
             path.write_bytes(payload)
             self.assertEqual(
-                extract_pst.compute_sha256(path),
+                outlook_to_md.compute_sha256(path),
                 hashlib.sha256(payload).hexdigest(),
             )
 
@@ -171,7 +171,7 @@ class TestComputeSha256(unittest.TestCase):
             path = Path(tmp) / "empty"
             path.write_bytes(b"")
             self.assertEqual(
-                extract_pst.compute_sha256(path),
+                outlook_to_md.compute_sha256(path),
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             )
 
@@ -182,53 +182,53 @@ class TestComputeSha256(unittest.TestCase):
             payload = b"x" * (8192 * 3 + 17)
             path.write_bytes(payload)
             self.assertEqual(
-                extract_pst.compute_sha256(path),
+                outlook_to_md.compute_sha256(path),
                 hashlib.sha256(payload).hexdigest(),
             )
 
 
 class TestFormatSize(unittest.TestCase):
     def test_bytes_render_without_a_decimal(self):
-        self.assertEqual(extract_pst.format_size(512), "512 B")
+        self.assertEqual(outlook_to_md.format_size(512), "512 B")
 
     def test_kilobytes(self):
-        self.assertEqual(extract_pst.format_size(1024), "1.0 KB")
+        self.assertEqual(outlook_to_md.format_size(1024), "1.0 KB")
 
     def test_megabytes(self):
-        self.assertEqual(extract_pst.format_size(1024 * 1024), "1.0 MB")
+        self.assertEqual(outlook_to_md.format_size(1024 * 1024), "1.0 MB")
 
     def test_gigabytes(self):
-        self.assertEqual(extract_pst.format_size(1024**3), "1.0 GB")
+        self.assertEqual(outlook_to_md.format_size(1024**3), "1.0 GB")
 
     def test_terabytes_are_the_ceiling(self):
-        self.assertTrue(extract_pst.format_size(1024**4).endswith("TB"))
+        self.assertTrue(outlook_to_md.format_size(1024**4).endswith("TB"))
 
     def test_zero(self):
-        self.assertEqual(extract_pst.format_size(0), "0 B")
+        self.assertEqual(outlook_to_md.format_size(0), "0 B")
 
 
-@unittest.skipUnless(extract_pst.HAS_HTML2TEXT, "html2text not installed")
+@unittest.skipUnless(outlook_to_md.HAS_HTML2TEXT, "html2text not installed")
 class TestHtmlToMarkdown(unittest.TestCase):
     """The html2text path. CI installs requirements.txt, so this always runs there."""
 
     def test_empty_input_returns_empty(self):
-        self.assertEqual(extract_pst.html_to_markdown(""), "")
+        self.assertEqual(outlook_to_md.html_to_markdown(""), "")
 
     def test_link_urls_are_preserved(self):
         # ignore_links = False is the setting under test: losing it would
         # silently drop every URL out of an archived mailbox.
-        result = extract_pst.html_to_markdown('<p>See <a href="https://example.com">this</a>.</p>')
+        result = outlook_to_md.html_to_markdown('<p>See <a href="https://example.com">this</a>.</p>')
         self.assertIn("example.com", result)
         self.assertIn("this", result)
 
     def test_long_lines_are_not_wrapped(self):
         # body_width = 0. Wrapping would corrupt quoted text and code blocks.
         sentence = " ".join(["word"] * 60)
-        result = extract_pst.html_to_markdown(f"<p>{sentence}</p>")
+        result = outlook_to_md.html_to_markdown(f"<p>{sentence}</p>")
         self.assertIn(sentence, result.replace("\n", " ").strip())
 
     def test_strips_tags(self):
-        result = extract_pst.html_to_markdown("<p>Hello <b>world</b></p>")
+        result = outlook_to_md.html_to_markdown("<p>Hello <b>world</b></p>")
         self.assertIn("Hello", result)
         self.assertIn("world", result)
         self.assertNotIn("<b>", result)
@@ -238,28 +238,28 @@ class TestHtmlToMarkdownFallback(unittest.TestCase):
     """The HAS_HTML2TEXT = False path, which runs whenever the optional dep is absent."""
 
     def setUp(self):
-        self.patcher = patch.object(extract_pst, "HAS_HTML2TEXT", False)
+        self.patcher = patch.object(outlook_to_md, "HAS_HTML2TEXT", False)
         self.patcher.start()
 
     def tearDown(self):
         self.patcher.stop()
 
     def test_br_becomes_a_newline(self):
-        self.assertIn("\n", extract_pst.html_to_markdown("one<br>two"))
+        self.assertIn("\n", outlook_to_md.html_to_markdown("one<br>two"))
 
     def test_tags_are_stripped(self):
-        result = extract_pst.html_to_markdown("<p>Hello <b>world</b></p>")
+        result = outlook_to_md.html_to_markdown("<p>Hello <b>world</b></p>")
         self.assertNotIn("<", result)
         self.assertIn("Hello", result)
 
     def test_entities_are_decoded(self):
-        result = extract_pst.html_to_markdown("a &amp; b &lt;c&gt; &quot;d&quot;&nbsp;e")
+        result = outlook_to_md.html_to_markdown("a &amp; b &lt;c&gt; &quot;d&quot;&nbsp;e")
         self.assertIn("&", result)
         self.assertIn("<c>", result)
         self.assertIn('"d"', result)
 
     def test_empty_input_still_returns_empty(self):
-        self.assertEqual(extract_pst.html_to_markdown(""), "")
+        self.assertEqual(outlook_to_md.html_to_markdown(""), "")
 
 
 class TestAppendModeIndexLoading(unittest.TestCase):
@@ -282,7 +282,7 @@ class TestAppendModeIndexLoading(unittest.TestCase):
         return path
 
     def extractor(self):
-        return extract_pst.EmailExtractor(
+        return outlook_to_md.EmailExtractor(
             pst_path=self.output_dir / "archive.pst",
             output_dir=self.output_dir,
             append=True,
@@ -390,7 +390,7 @@ class TestDirectoryDispatch(unittest.TestCase):
             (staging / "a.eml").write_text("Subject: x\n\nbody\n")
             out = Path(tmp) / "out"
 
-            extractor = extract_pst.EmailExtractor(pst_path=staging, output_dir=out)
+            extractor = outlook_to_md.EmailExtractor(pst_path=staging, output_dir=out)
 
             called = {"dir": False, "libratom": False}
 
@@ -402,7 +402,7 @@ class TestDirectoryDispatch(unittest.TestCase):
 
             with patch.object(extractor, "_process_eml_directory", fake_dir), patch.object(
                 extractor, "_extract_with_libratom", fake_libratom
-            ), patch.object(extract_pst, "USE_LIBRATOM", True):
+            ), patch.object(outlook_to_md, "USE_LIBRATOM", True):
                 extractor.extract()
 
             self.assertTrue(called["dir"], "directory input did not reach directory mode")
@@ -439,13 +439,13 @@ class TestAppendRoundTrip(unittest.TestCase):
             out = Path(tmp) / "out"
             source = Path(tmp) / "staging"
 
-            extract_pst.EmailExtractor(pst_path=source, output_dir=out).extract()
+            outlook_to_md.EmailExtractor(pst_path=source, output_dir=out).extract()
 
             first_rows = (out / "index.csv").read_text().splitlines()
             first_folders = sorted(p.parent.name for p in out.rglob("email.md"))
             self.assertEqual(len(first_folders), 1)
 
-            extract_pst.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
+            outlook_to_md.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
 
             second_rows = (out / "index.csv").read_text().splitlines()
             second_folders = sorted(p.parent.name for p in out.rglob("email.md"))
@@ -480,7 +480,7 @@ class TestAppendRoundTrip(unittest.TestCase):
             out = Path(tmp) / "out"
             source = Path(tmp) / "staging"
 
-            extract_pst.EmailExtractor(pst_path=source, output_dir=out).extract()
+            outlook_to_md.EmailExtractor(pst_path=source, output_dir=out).extract()
 
             first_rows = (out / "index.csv").read_text().splitlines()
             first_folders = sorted(p.parent.name for p in out.rglob("email.md"))
@@ -490,7 +490,7 @@ class TestAppendRoundTrip(unittest.TestCase):
             # message is still on disk in staging, alongside one that is new.
             (staging / "20260730_090000_def.eml").write_text(self.NEW_EML)
 
-            extract_pst.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
+            outlook_to_md.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
 
             second_rows = (out / "index.csv").read_text().splitlines()
             second_folders = sorted(p.parent.name for p in out.rglob("email.md"))
@@ -513,7 +513,7 @@ class TestAppendRoundTrip(unittest.TestCase):
             (staging / "msg.eml").write_text(self.EML)
             out = Path(tmp) / "out"
 
-            extract_pst.EmailExtractor(pst_path=Path(tmp) / "staging", output_dir=out).extract()
+            outlook_to_md.EmailExtractor(pst_path=Path(tmp) / "staging", output_dir=out).extract()
 
             found = list(out.rglob("email.md"))
             self.assertEqual(len(found), 1)
@@ -552,14 +552,14 @@ class TestAppendWithoutMessageId(unittest.TestCase):
             out = Path(tmp) / "out"
             source = Path(tmp) / "staging"
 
-            extract_pst.EmailExtractor(pst_path=source, output_dir=out).extract()
+            outlook_to_md.EmailExtractor(pst_path=source, output_dir=out).extract()
             first_rows = (out / "index.csv").read_text().splitlines()
             first_folders = sorted(p.parent.name for p in out.rglob("email.md"))
             self.assertEqual(len(first_folders), 1)
 
             # Same staging directory, re-appended - the overlap a --since
             # window would normally produce harmlessly.
-            extract_pst.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
+            outlook_to_md.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
             second_rows = (out / "index.csv").read_text().splitlines()
             second_folders = sorted(p.parent.name for p in out.rglob("email.md"))
 
@@ -594,7 +594,7 @@ class TestManifestProvenance(unittest.TestCase):
         reach these two methods, so append-from-a-directory below exercises
         the real _process_eml_directory code path.
         """
-        extractor = extract_pst.EmailExtractor(pst_path=pst_path, output_dir=output_dir, **kwargs)
+        extractor = outlook_to_md.EmailExtractor(pst_path=pst_path, output_dir=output_dir, **kwargs)
         with patch.object(extractor, "_extract_with_libratom", lambda: None), patch.object(
             extractor, "_extract_with_readpst", lambda: None
         ):
@@ -605,7 +605,7 @@ class TestManifestProvenance(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pst_path = Path(tmp) / "archive.pst"
             pst_path.write_bytes(b"stand-in PST bytes; only the hash matters here")
-            original_hash = extract_pst.compute_sha256(pst_path)
+            original_hash = outlook_to_md.compute_sha256(pst_path)
 
             out = Path(tmp) / "out"
             self._extract_stub_backend(pst_path, out)
@@ -653,7 +653,7 @@ class TestManifestProvenance(unittest.TestCase):
                 "Subject: First\nContent-Type: text/plain; charset=utf-8\n\nBody.\n"
             )
             out = Path(tmp) / "out"
-            extract_pst.EmailExtractor(pst_path=Path(tmp) / "staging1", output_dir=out).extract()
+            outlook_to_md.EmailExtractor(pst_path=Path(tmp) / "staging1", output_dir=out).extract()
 
             staging2 = Path(tmp) / "staging2" / "Inbox"
             staging2.mkdir(parents=True)
@@ -663,7 +663,7 @@ class TestManifestProvenance(unittest.TestCase):
                 "From: Carol <carol@example.com>\nTo: Bob <bob@example.com>\n"
                 "Subject: Second\nContent-Type: text/plain; charset=utf-8\n\nBody.\n"
             )
-            extract_pst.EmailExtractor(pst_path=Path(tmp) / "staging2", output_dir=out, append=True).extract()
+            outlook_to_md.EmailExtractor(pst_path=Path(tmp) / "staging2", output_dir=out, append=True).extract()
 
             index_md = (out / "index.md").read_text()
             self.assertIn("**Total Emails:** 2", index_md, "totals reflect this run only, not the whole archive")
@@ -675,12 +675,12 @@ class TestModuleContract(unittest.TestCase):
     def test_optional_dependency_flags_exist(self):
         for flag in ("HAS_DATEUTIL", "HAS_TQDM", "HAS_HTML2TEXT", "USE_LIBRATOM"):
             with self.subTest(flag=flag):
-                self.assertIsInstance(getattr(extract_pst, flag), bool)
+                self.assertIsInstance(getattr(outlook_to_md, flag), bool)
 
     def test_tqdm_fallback_is_iterable_when_absent(self):
-        if extract_pst.HAS_TQDM:
+        if outlook_to_md.HAS_TQDM:
             self.skipTest("tqdm is installed; the fallback is not in play")
-        self.assertEqual(list(extract_pst.tqdm([1, 2, 3], desc="x")), [1, 2, 3])
+        self.assertEqual(list(outlook_to_md.tqdm([1, 2, 3], desc="x")), [1, 2, 3])
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@
 #   1. prefers a libratom-capable interpreter (<= 3.11) if one is on PATH;
 #   2. otherwise builds the venv on the default python3 WITHOUT libratom, and
 #      says plainly that extraction then depends on readpst.
-# extract_pst.py guards the libratom import and falls back to readpst, so the
+# outlook_to_md.py guards the libratom import and falls back to readpst, so the
 # degraded mode is real and supported - it just must not be a silent surprise.
 set -e
 
