@@ -1491,6 +1491,112 @@ ${existing_body}"
         echo "$result" | jq -r 'if (.categories | length) == 0 then "Categories cleared" else "Categories set: \(.categories | join(", "))" end'
         ;;
 
+    mkcategory)
+        cat_name="$2"
+        cat_colour="$3"
+        if [ -z "$cat_name" ]; then
+            echo "Usage: outlook-graph-mail.sh mkcategory <name> [colour]"
+            echo "       colour is a name (red, dark blue, ...) or a presetN value"
+            echo "       Names: $CATEGORY_COLOUR_NAMES"
+            exit 1
+        fi
+        preset=""
+        if [ -n "$cat_colour" ]; then
+            if ! preset=$(category_colour_to_preset "$cat_colour"); then
+                echo "Error: unknown colour '$cat_colour'" >&2
+                echo "Valid names: $CATEGORY_COLOUR_NAMES" >&2
+                echo "Or a raw preset0 to preset24 value." >&2
+                exit 1
+            fi
+        fi
+        existing=$(category_json "$cat_name")
+        if [ -n "$existing" ]; then
+            existing_colour=$(printf '%s' "$existing" | jq -r '.color // "no colour"')
+            echo "Category already exists: $cat_name ($existing_colour)"
+            if [ -n "$preset" ] && [ "$preset" != "$existing_colour" ]; then
+                echo "Requested $preset differs; leaving it as it is. Use rccategory to change it."
+            fi
+            exit 0
+        fi
+        if [ -n "$preset" ]; then
+            payload=$(jq -n --arg n "$cat_name" --arg c "$preset" '{displayName: $n, color: $c}')
+        else
+            payload=$(jq -n --arg n "$cat_name" '{displayName: $n}')
+        fi
+        result=$(api_call POST "/me/outlook/masterCategories" "$payload")
+        die_on_error "$result" "creating category"
+        if [ -n "$preset" ]; then
+            echo "Category created: $cat_name ($preset)"
+        else
+            echo "Category created: $cat_name (no colour)"
+        fi
+        ;;
+
+    rncategory)
+        cat_name="$2"
+        new_name="$3"
+        if [ -z "$cat_name" ] || [ -z "$new_name" ]; then
+            echo "Usage: outlook-graph-mail.sh rncategory <old-name> <new-name>"
+            exit 1
+        fi
+        cat_id=$(resolve_category_id "$cat_name")
+        if [ -z "$cat_id" ]; then
+            echo "Error: no category named '$cat_name'" >&2
+            echo "Run 'categories' to see the master list." >&2
+            exit 1
+        fi
+        result=$(api_call PATCH "/me/outlook/masterCategories/$cat_id" \
+            "$(jq -n --arg n "$new_name" '{displayName: $n}')")
+        die_on_error "$result" "renaming category"
+        echo "Category renamed: $cat_name -> $new_name"
+        ;;
+
+    rccategory)
+        cat_name="$2"
+        cat_colour="$3"
+        if [ -z "$cat_name" ] || [ -z "$cat_colour" ]; then
+            echo "Usage: outlook-graph-mail.sh rccategory <name> <colour>"
+            echo "       colour is a name (red, dark blue, ...) or a presetN value"
+            echo "       Names: $CATEGORY_COLOUR_NAMES"
+            exit 1
+        fi
+        if ! preset=$(category_colour_to_preset "$cat_colour"); then
+            echo "Error: unknown colour '$cat_colour'" >&2
+            echo "Valid names: $CATEGORY_COLOUR_NAMES" >&2
+            echo "Or a raw preset0 to preset24 value." >&2
+            exit 1
+        fi
+        cat_id=$(resolve_category_id "$cat_name")
+        if [ -z "$cat_id" ]; then
+            echo "Error: no category named '$cat_name'" >&2
+            echo "Run 'categories' to see the master list." >&2
+            exit 1
+        fi
+        result=$(api_call PATCH "/me/outlook/masterCategories/$cat_id" \
+            "$(jq -n --arg c "$preset" '{color: $c}')")
+        die_on_error "$result" "recolouring category"
+        echo "Category recoloured: $cat_name ($preset)"
+        ;;
+
+    rmcategory)
+        cat_name="$2"
+        if [ -z "$cat_name" ]; then
+            echo "Usage: outlook-graph-mail.sh rmcategory <name>"
+            exit 1
+        fi
+        cat_id=$(resolve_category_id "$cat_name")
+        if [ -z "$cat_id" ]; then
+            echo "Error: no category named '$cat_name'" >&2
+            echo "Run 'categories' to see the master list." >&2
+            exit 1
+        fi
+        result=$(api_call DELETE "/me/outlook/masterCategories/$cat_id")
+        die_on_error "$result" "deleting category"
+        echo "Category deleted from the master list: $cat_name"
+        echo "Messages already carrying this label keep it. Strip one with:"
+        echo "  outlook-graph-mail.sh categorize <message-id> --remove \"$cat_name\""
+        ;;
+
     junk)
         msg_id="$2"
         if [ -z "$msg_id" ]; then
