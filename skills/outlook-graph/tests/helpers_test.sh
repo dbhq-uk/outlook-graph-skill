@@ -389,6 +389,143 @@ eq "remove is case-insensitive" '["Invoices"]' \
 eq "remove of an absent category is a no-op" '["Invoices"]' \
    "$(echo '["Invoices"]' | categories_remove 'Nope')"
 
+########################################
+# CLI-level integration: run the real script as a subprocess, so the
+# `categorize` dispatcher's flag handling is proven end-to-end - not just at
+# the unit level, where the dispatcher's `case "$3" in ... esac` is not an
+# extractable function. A throwaway HOME provides a valid, non-expired token
+# (so no network call is needed to refresh it), and `curl` is shadowed with a
+# bash function - exported so the child `bash "$MAIL"` process inherits it in
+# place of the real binary - that logs every request and answers from small
+# fixture files a test can swap between "ok" and "API error".
+########################################
+CLI_TMP=$(mktemp -d)
+CLI_HOME="$CLI_TMP/home"
+CLI_LOG="$CLI_TMP/curl.log"
+CLI_MASTERCATS="$CLI_TMP/mastercats.json"
+CLI_MASTERCATS_POST="$CLI_TMP/mastercats_post.json"
+CLI_MASTERCATS_PATCH="$CLI_TMP/mastercats_patch.json"
+CLI_CURRENTCATS="$CLI_TMP/currentcats.json"
+mkdir -p "$CLI_HOME/.outlook-graph/default"
+printf '%s' '{"client_id":"test-client","client_secret":"test-secret"}' \
+    > "$CLI_HOME/.outlook-graph/default/config.json"
+printf '%s' '{"access_token":"test-token","refresh_token":"test-refresh","expires_at":9999999999}' \
+    > "$CLI_HOME/.outlook-graph/default/credentials.json"
+chmod 600 "$CLI_HOME/.outlook-graph/default/credentials.json"
+export CLI_LOG CLI_MASTERCATS CLI_MASTERCATS_POST CLI_MASTERCATS_PATCH CLI_CURRENTCATS
+
+# >100 chars so resolve_message_id's "looks like a full ID" short-circuit
+# returns it unchanged - no cache file or listing API call needed to resolve it.
+CLI_MSG_ID=$(printf 'M%.0s' $(seq 1 110))
+
+curl() {
+    local url="" method="GET" data="" prev="" arg
+    for arg in "$@"; do
+        case "$prev" in
+            -X) method="$arg" ;;
+            -d) data="$arg" ;;
+        esac
+        case "$arg" in
+            https://graph.microsoft.com/*) url="$arg" ;;
+        esac
+        prev="$arg"
+    done
+    printf '%s %s\n' "$method" "$url" >> "$CLI_LOG"
+    case "$url" in
+        *'/me/outlook/masterCategories')
+            case "$method" in
+                GET) cat "$CLI_MASTERCATS" ;;
+                POST) cat "$CLI_MASTERCATS_POST" ;;
+                *) printf '{}' ;;
+            esac
+            ;;
+        *'/me/outlook/masterCategories/'*)
+            case "$method" in
+                PATCH) cat "$CLI_MASTERCATS_PATCH" ;;
+                DELETE) printf '' ;;
+                *) printf '{}' ;;
+            esac
+            ;;
+        *'$select=categories'*)
+            cat "$CLI_CURRENTCATS"
+            ;;
+        *'/me/messages/'*)
+            if [ "$method" = "PATCH" ] && [ -n "$data" ]; then
+                printf '%s' "$data" | jq -c '{categories: (.categories // [])}'
+            else
+                printf '{}'
+            fi
+            ;;
+        *) printf '{}' ;;
+    esac
+}
+export -f curl
+
+run_mail_cli() { HOME="$CLI_HOME" OUTLOOK_ACCOUNT=default bash "$MAIL" "$@"; }
+
+# Captures stdout/stderr/exit code of a run_mail_cli call into CLI_OUT/CLI_ERR/CLI_RC.
+run_and_capture() {
+    local outfile errfile
+    outfile=$(mktemp); errfile=$(mktemp)
+    run_mail_cli "$@" > "$outfile" 2> "$errfile"
+    CLI_RC=$?
+    CLI_OUT=$(cat "$outfile"); CLI_ERR=$(cat "$errfile")
+    rm -f "$outfile" "$errfile"
+}
+
+contains() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
+
+########################################
+# Finding 1: a near-miss flag (wrong case, typo, unsupported verb) must be
+# rejected - never fall through to the replace form, which would PATCH the
+# message's categories to a single-element list containing the flag text
+# itself, wiping every real category while still reporting success.
+########################################
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --Add "Follow up"
+eq "categorize --Add (wrong case) is rejected" "1" "$CLI_RC"
+if contains "$CLI_ERR" "--add" && contains "$CLI_ERR" "--remove"; then
+    eq "categorize --Add error names the two valid flags" ok ok
+else
+    eq "categorize --Add error names the two valid flags" "mentions --add and --remove" "$CLI_ERR"
+fi
+eq "categorize --Add makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --rm "Follow up"
+eq "categorize --rm (unsupported verb) is rejected" "1" "$CLI_RC"
+eq "categorize --rm makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" -add "Follow up"
+eq "categorize -add (single dash) is rejected" "1" "$CLI_RC"
+eq "categorize -add makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --append "Follow up"
+eq "categorize --append (typo verb) is rejected" "1" "$CLI_RC"
+eq "categorize --append makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --add "Follow up" "Extra"
+eq "categorize --add with a stray extra argument is rejected" "1" "$CLI_RC"
+eq "categorize --add stray-argument case makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+# The legitimate replace and clear forms must still work unchanged.
+printf '%s' '{"categories":["Old"]}' > "$CLI_CURRENTCATS"
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" "A,B"
+eq "categorize plain replace still works" "0" "$CLI_RC"
+eq "categorize plain replace sets the given categories" "Categories set: A, B" "$CLI_OUT"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" ""
+eq "categorize empty string still clears" "0" "$CLI_RC"
+eq "categorize empty string clears output" "Categories cleared" "$CLI_OUT"
+
+unset -f curl
+rm -rf "$CLI_TMP"
+
 rm -f "$body_file" /tmp/outlook_test_last_url /tmp/outlook_test_calls
 echo "-----------------------------"
 printf 'PASS=%d FAIL=%d\n' "$PASS" "$FAIL"

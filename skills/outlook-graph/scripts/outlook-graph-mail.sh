@@ -1503,6 +1503,11 @@ ${existing_body}"
                     echo "Usage: outlook-graph-mail.sh categorize <message-id> $3 <category>"
                     exit 1
                 fi
+                if [ -n "$5" ]; then
+                    echo "Error: too many arguments for $3; expected exactly one category name" >&2
+                    echo "Usage: outlook-graph-mail.sh categorize <message-id> $3 <category>" >&2
+                    exit 1
+                fi
                 # Note: get-then-patch is not atomic; concurrent --add/--remove calls on the
                 # same message can race and the later write may drop the earlier change.
                 # Graph offers no compare-and-swap, so this limitation is accepted for
@@ -1520,6 +1525,18 @@ ${existing_body}"
                     updated=$(printf '%s' "$current" | categories_remove "$one")
                 fi
                 payload=$(jq -n --argjson c "$updated" '{categories: $c}')
+                ;;
+            -*)
+                # Anything else starting with '-' is a near-miss flag (wrong case,
+                # a typo, an unsupported verb), not a category name. Falling
+                # through to the replace form below would PATCH the message's
+                # categories to a single-element list containing the flag text
+                # itself, silently wiping every real category. Reject before any
+                # read or write.
+                echo "Error: unrecognised flag '$3' for categorize" >&2
+                echo "Valid flags: --add, --remove" >&2
+                echo "To replace the whole category list, pass a plain comma-separated value that does not start with '-'." >&2
+                exit 1
                 ;;
             *)
                 cats="$3"
