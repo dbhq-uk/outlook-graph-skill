@@ -184,6 +184,12 @@ class EmailExtractor:
         self.error_log = []
         self.folder_counts = {}
         self.date_range = {'min': None, 'max': None}
+        # Every source this archive has ever been built or appended from, each
+        # with the hash it had at the time. An archive legitimately accrues
+        # several sources over its life (the original PST, then one or more
+        # --append runs), and none of the earlier ones may be forgotten just
+        # because a later run regenerates the manifest.
+        self.provenance = []
 
     def log(self, message: str):
         """Log message if verbose mode is on."""
@@ -220,7 +226,13 @@ class EmailExtractor:
 
             print(f"Found {len(self.existing_message_ids)} existing emails (by message ID)")
 
-            # Update stats from existing data
+            # Rebuild folder_counts and date_range from existing data so they
+            # describe the whole archive rather than just this run. Note this
+            # does NOT touch self.stats: that dict is deliberately run-only
+            # (it drives the "N processed / N skipped" summary for THIS
+            # invocation), so anything that must describe the archive as a
+            # whole - like index.md's totals - has to be derived from
+            # self.index_data/folder_counts, never from self.stats.
             for row in self.index_data:
                 pst_folder = row.get('pst_folder', 'Unknown')
                 self.folder_counts[pst_folder] = self.folder_counts.get(pst_folder, 0) + 1
@@ -242,6 +254,77 @@ class EmailExtractor:
             self.existing_message_ids.clear()
             self.index_data.clear()
 
+    def _load_existing_provenance(self):
+        """Read the sources already on record in an existing manifest.sha256.
+
+        Returns a list of {'source', 'sha256', 'generated'} dicts, oldest first.
+        Understands two formats:
+
+        - the current multi-source block this method itself writes, and
+        - the single-source header this tool wrote before provenance tracking
+          existed ("# Source: x" / "# SHA256 of source: y"), so an archive
+          built by an older version of this script still appends cleanly.
+        """
+        manifest_path = self.output_dir / "manifest.sha256"
+        if not manifest_path.exists():
+            return []
+
+        try:
+            lines = manifest_path.read_text(encoding='utf-8').splitlines()
+        except Exception as e:
+            self.log_error(f"Failed to read existing manifest for provenance: {e}")
+            return []
+
+        entry_re = re.compile(r'^#\s+sha256=(\S+)\s+generated=(\S+)\s+source=(.*)$')
+        entries = []
+        for line in lines:
+            match = entry_re.match(line)
+            if match:
+                sha256, generated, source = match.groups()
+                entries.append({'source': source, 'sha256': None if sha256 == 'N/A' else sha256, 'generated': generated})
+        if entries:
+            return entries
+
+        # Fall back to the legacy single-source header.
+        legacy_source = None
+        legacy_sha256 = None
+        legacy_generated = 'unknown'
+        for line in lines:
+            if line.startswith('# Generated:'):
+                legacy_generated = line.split(':', 1)[1].strip()
+            elif line.startswith('# Source:'):
+                legacy_source = line.split(':', 1)[1].strip()
+            elif line.startswith('# SHA256 of source:'):
+                legacy_sha256 = line.split(':', 1)[1].strip()
+
+        if legacy_source:
+            return [{'source': legacy_source, 'sha256': legacy_sha256, 'generated': legacy_generated}]
+        return []
+
+    def _build_provenance(self):
+        """Assemble this run's source list: every prior source plus this one.
+
+        Append-safe by construction: prior entries come from the manifest
+        already on disk, so they survive regardless of how many times this
+        has run before. Re-running the same append (e.g. an empty --since
+        window against the same staging directory) must not grow the list
+        forever, so an identical (source, hash) pair is not repeated.
+        """
+        provenance = self._load_existing_provenance() if self.append else []
+
+        current = {
+            'source': self.pst_path.name or str(self.pst_path),
+            'sha256': compute_sha256(self.pst_path) if self.pst_path.is_file() else None,
+            'generated': datetime.now(timezone.utc).isoformat(),
+        }
+        already_recorded = any(
+            entry['source'] == current['source'] and entry['sha256'] == current['sha256'] for entry in provenance
+        )
+        if not already_recorded:
+            provenance.append(current)
+
+        self.provenance = provenance
+
     def extract(self):
         """Main extraction method."""
         self.setup_directories()
@@ -253,6 +336,7 @@ class EmailExtractor:
             self._load_existing_index()
         else:
             print("Mode: OVERWRITE (replacing existing emails)")
+        self._build_provenance()
         print()
 
         # Test the input before the backend. A directory of .eml is a documented
@@ -914,15 +998,27 @@ class EmailExtractor:
                 f"{self.date_range['min'].strftime('%Y-%m-%d')} to {self.date_range['max'].strftime('%Y-%m-%d')}"
             )
 
-        source_size = format_size(self.pst_path.stat().st_size) if self.pst_path.is_file() else "N/A"
+        # Cumulative across the whole archive, not just this run: self.stats
+        # only counts what THIS invocation processed, so on an --append run it
+        # undercounts everything that was already there. self.index_data is
+        # the merged (existing + new) row set, so it - not self.stats - is
+        # the archive's true total. See _load_existing_index for how the
+        # existing rows get merged in.
+        total_emails = len(self.index_data)
+        total_attachments = sum(int(row.get('attachment_count') or 0) for row in self.index_data)
+
+        sources_str = ', '.join(
+            f"{entry['source']} (sha256 {entry['sha256'][:12]}…)" if entry['sha256'] else f"{entry['source']} (N/A)"
+            for entry in self.provenance
+        )
 
         lines = [
             "# Email Archive Index",
             "",
-            f"**Source:** {self.pst_path.name} ({source_size})",
+            f"**Sources:** {sources_str}",
             f"**Extracted:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC",
-            f"**Total Emails:** {self.stats['processed']:,}",
-            f"**Total Attachments:** {self.stats['attachments']:,}",
+            f"**Total Emails:** {total_emails:,}",
+            f"**Total Attachments:** {total_attachments:,}",
             f"**Date Range:** {date_range_str}",
             "",
             "## Statistics",
@@ -971,15 +1067,20 @@ class EmailExtractor:
             f.write('\n'.join(lines) + '\n')
 
     def _generate_manifest(self):
-        """Generate master manifest.sha256."""
+        """Generate master manifest.sha256.
+
+        Every run regenerates this file, but the source list is cumulative
+        (see _build_provenance): appending to an archive must not erase the
+        identity and hash of whatever it was originally built from.
+        """
         manifest_path = self.output_dir / "manifest.sha256"
         lines = [
             f"# Generated: {datetime.now(timezone.utc).isoformat()}",
-            f"# Source: {self.pst_path.name}",
+            "# Archive sources:",
         ]
-
-        if self.pst_path.is_file():
-            lines.append(f"# SHA256 of source: {compute_sha256(self.pst_path)}")
+        for entry in self.provenance:
+            sha_display = entry['sha256'] or 'N/A'
+            lines.append(f"#   sha256={sha_display} generated={entry['generated']} source={entry['source']}")
 
         lines.append("")
 
