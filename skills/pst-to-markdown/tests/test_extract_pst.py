@@ -410,11 +410,14 @@ class TestDirectoryDispatch(unittest.TestCase):
 
 
 class TestAppendRoundTrip(unittest.TestCase):
-    """Second run over the same staging directory must add nothing.
+    """A re-run over the same staging directory must skip old mail and admit new mail.
 
     This is the property the outlook-graph -> archive workflow relies on: a
     --since window that overlaps what is already archived costs bandwidth and
-    nothing else, because Message-ID dedupe absorbs the overlap.
+    nothing else, because Message-ID dedupe absorbs the overlap, while mail
+    outside the overlap still lands. Pinning "adds nothing" alone would also
+    pass under a broken append that discards every save, so a second test
+    below checks that a genuinely new message still gets through.
     """
 
     EML = (
@@ -449,6 +452,59 @@ class TestAppendRoundTrip(unittest.TestCase):
 
             self.assertEqual(len(first_rows), len(second_rows), "append added an index row")
             self.assertEqual(first_folders, second_folders, "append added an email folder")
+
+    NEW_EML = (
+        "Message-ID: <second-message@example.com>\n"
+        "Date: Wed, 30 Jul 2026 09:00:00 +0000\n"
+        "From: Carol <carol@example.com>\n"
+        "To: Bob <bob@example.com>\n"
+        "Subject: A brand new thread\n"
+        "Content-Type: text/plain; charset=utf-8\n"
+        "\n"
+        "Different body.\n"
+    )
+
+    def test_append_run_skips_duplicates_but_admits_new_mail(self):
+        """The noop test alone cannot tell correct dedupe from "skip everything".
+
+        A single-message round trip passes just as well under a broken
+        implementation that discards every save once append=True. Pin the other
+        half of the property: an already-archived message is skipped AND a
+        genuinely new one - different Message-ID, sender, subject and date, so
+        its derived folder name cannot collide with the first - still lands.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            staging = Path(tmp) / "staging" / "Inbox"
+            staging.mkdir(parents=True)
+            (staging / "20260729_101200_abc.eml").write_text(self.EML)
+            out = Path(tmp) / "out"
+            source = Path(tmp) / "staging"
+
+            extract_pst.EmailExtractor(pst_path=source, output_dir=out).extract()
+
+            first_rows = (out / "index.csv").read_text().splitlines()
+            first_folders = sorted(p.parent.name for p in out.rglob("email.md"))
+            self.assertEqual(len(first_folders), 1)
+
+            # Simulate a --since window that overlaps the archive: the original
+            # message is still on disk in staging, alongside one that is new.
+            (staging / "20260730_090000_def.eml").write_text(self.NEW_EML)
+
+            extract_pst.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
+
+            second_rows = (out / "index.csv").read_text().splitlines()
+            second_folders = sorted(p.parent.name for p in out.rglob("email.md"))
+
+            self.assertEqual(len(second_folders), 2, "the new message was not added")
+            self.assertEqual(
+                len(second_rows),
+                len(first_rows) + 1,
+                "append did not add exactly one new index row",
+            )
+            self.assertTrue(
+                set(second_folders) > set(first_folders),
+                "the new folder does not extend the original one",
+            )
 
     def test_staging_layout_becomes_archive_layout(self):
         with tempfile.TemporaryDirectory() as tmp:
