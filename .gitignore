@@ -14,11 +14,10 @@ inbox/
 
 # Local agent tooling state
 .serena/
+.superpowers/
 
 # Python venv provisioned by pst-to-markdown/setup.sh
 .venv/
 __pycache__/
 *.pyc
 
-# Subagent-driven-development scratch workspace (ledger, briefs, review packages)
-.superpowers/

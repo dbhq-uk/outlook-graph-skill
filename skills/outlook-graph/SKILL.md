@@ -312,6 +312,23 @@ ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh categories
 ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh categorize <message-id> "Red category, Invoices"
 ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh categorize <message-id> ""
 
+# --add and --remove change one category and leave the others alone. Prefer them
+# over the comma-separated form whenever you are not deliberately replacing the
+# whole list.
+${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh categorize <message-id> --add "Follow up"
+${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh categorize <message-id> --remove "Follow up"
+
+# Master category list. A colour is a name (red, dark blue, ...) or a presetN
+# value; run the command with no colour to create one without a colour.
+${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh mkcategory "Follow up" red
+${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh rccategory "Follow up" "dark blue"
+${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh rmcategory "Follow up"
+
+# There is no rename: Graph makes displayName immutable once a category exists.
+# mkcategory is safe to re-run: an existing name is reported, not an error.
+# rmcategory removes the category from the master list only. Messages already
+# carrying the label keep it; strip them with categorize --remove.
+
 # Junk handling (move to Junk Email / rescue back to Inbox)
 ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh junk <message-id>
 ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh notjunk <message-id>

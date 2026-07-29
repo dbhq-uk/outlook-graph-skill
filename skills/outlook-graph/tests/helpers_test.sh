@@ -45,6 +45,11 @@ eval "$(extract_fn from_to_json)"
 eval "$(extract_fn md_to_html)"
 eval "$(extract_cal_fn attendees_to_json)"
 eval "$(extract_cal_fn resolve_event_id)"
+eval "$(extract_fn category_colour_to_preset)"
+eval "$(extract_fn category_json)"
+eval "$(extract_fn resolve_category_id)"
+eval "$(extract_fn categories_add)"
+eval "$(extract_fn categories_remove)"
 
 ########################################
 # recipients_to_json / attendees_to_json
@@ -396,6 +401,295 @@ eq "export propagates a Graph error as rc1" "1" \
    "$(export_list_messages FID '' 10 >/dev/null 2>&1; echo $?)"
 eq "export reports the Graph error message" "1" \
    "$(export_list_messages FID '' 10 2>&1 >/dev/null | grep -c 'nope')"
+
+########################################
+# category_colour_to_preset: Graph stores colours as opaque presetN values.
+# Both a friendly name and a raw preset are accepted, because presetN means
+# nothing to a reader and a name cannot reach a preset Microsoft adds later.
+########################################
+eq "colour name maps to preset" "preset0" "$(category_colour_to_preset red)"
+eq "colour name is case-insensitive" "preset0" "$(category_colour_to_preset RED)"
+eq "colour name ignores spaces" "preset22" "$(category_colour_to_preset 'dark blue')"
+eq "colour grey spelling" "preset12" "$(category_colour_to_preset grey)"
+eq "colour gray spelling" "preset12" "$(category_colour_to_preset gray)"
+eq "raw preset passes through" "preset7" "$(category_colour_to_preset preset7)"
+eq "out-of-range preset rejected" "1" "$(category_colour_to_preset preset25 >/dev/null; echo $?)"
+eq "unknown colour rejected" "1" "$(category_colour_to_preset mauve >/dev/null; echo $?)"
+
+########################################
+# category_json / resolve_category_id: Graph addresses a master category by
+# GUID, so a display name must be resolved first. The match is exact and
+# case-insensitive, deliberately NOT a substring match: renaming or deleting
+# the wrong category on a fuzzy match cannot be undone. The fixture's second
+# entry contains the first one's name, so a substring implementation fails here.
+########################################
+mock_cats() {
+    api_call() { echo '{"value":[{"id":"C1","displayName":"Follow up","color":"preset0"},{"id":"C2","displayName":"Follow up later","color":"preset4"}]}'; }
+}
+eq "resolve category by exact name" "C1" "$(mock_cats; resolve_category_id 'Follow up')"
+eq "resolve category is case-insensitive" "C1" "$(mock_cats; resolve_category_id 'FOLLOW UP')"
+eq "resolve category does not substring match" "" "$(mock_cats; resolve_category_id 'Follow')"
+eq "resolve category absent is empty" "" "$(mock_cats; resolve_category_id 'Nope')"
+eq "category_json carries the colour" "preset4" "$(mock_cats; category_json 'Follow up later' | jq -r '.color')"
+
+# category_json / resolve_category_id on an unreadable master list must fail
+# CLOSED: a non-zero exit and the error body on stdout, never the same empty
+# "not found" shape a genuinely absent category produces. (This replaces an
+# earlier "exits cleanly" / exit-0 assertion: that pinned the crash-guard fix's
+# shape at the time, not the requirement - an API error reported as success is
+# exactly the bug this pins against now.)
+mock_cat_error() { api_call() { echo '{"error":{"code":"NetworkError","message":"boom"}}'; }; }
+eq "category_json on API error exits non-zero" "1" \
+   "$(mock_cat_error; category_json 'Follow up' >/dev/null 2>&1; echo $?)"
+eq "category_json on API error prints the error body, not empty" "NetworkError" \
+   "$(mock_cat_error; category_json 'Follow up' 2>/dev/null | jq -r '.error.code')"
+eq "resolve_category_id on API error exits non-zero" "1" \
+   "$(mock_cat_error; resolve_category_id 'Follow up' >/dev/null 2>&1; echo $?)"
+eq "resolve_category_id on API error carries the error body, not an empty id" "NetworkError" \
+   "$(mock_cat_error; resolve_category_id 'Follow up' 2>/dev/null | jq -r '.error.code')"
+
+########################################
+# categories_add / categories_remove: `categorize` replaces the message's whole
+# category list, so adding one label meant every caller had to read-modify-write
+# by hand. These do it once, correctly: order is preserved, nothing the caller
+# did not name is touched, and both are no-ops when there is nothing to do.
+########################################
+eq "add to empty list" '["Follow up"]' \
+   "$(echo '[]' | categories_add 'Follow up')"
+eq "add preserves existing and order" '["Invoices","Project X","Follow up"]' \
+   "$(echo '["Invoices","Project X"]' | categories_add 'Follow up')"
+eq "add of a present category does not duplicate" '["Invoices","Follow up"]' \
+   "$(echo '["Invoices","Follow up"]' | categories_add 'Follow up')"
+eq "add is case-insensitive about duplicates" '["Follow up"]' \
+   "$(echo '["Follow up"]' | categories_add 'FOLLOW UP')"
+eq "remove takes only the named one" '["Invoices","Project X"]' \
+   "$(echo '["Invoices","Follow up","Project X"]' | categories_remove 'Follow up')"
+eq "remove is case-insensitive" '["Invoices"]' \
+   "$(echo '["Invoices","Follow up"]' | categories_remove 'FOLLOW UP')"
+eq "remove of an absent category is a no-op" '["Invoices"]' \
+   "$(echo '["Invoices"]' | categories_remove 'Nope')"
+
+########################################
+# CLI-level integration: run the real script as a subprocess, so the
+# `categorize` dispatcher's flag handling and every call site that reads the
+# master category list are proven end-to-end - not just at the unit level,
+# where the dispatcher's `case "$3" in ... esac` is not an extractable
+# function. A throwaway HOME provides a valid, non-expired token (so no
+# network call is needed to refresh it), and `curl` is shadowed with a bash
+# function - exported so the child `bash "$MAIL"` process inherits it in
+# place of the real binary - that logs every request and answers from small
+# fixture files a test can swap between "ok" and "API error".
+########################################
+CLI_TMP=$(mktemp -d)
+CLI_HOME="$CLI_TMP/home"
+CLI_LOG="$CLI_TMP/curl.log"
+CLI_MASTERCATS="$CLI_TMP/mastercats.json"
+CLI_MASTERCATS_POST="$CLI_TMP/mastercats_post.json"
+CLI_MASTERCATS_PATCH="$CLI_TMP/mastercats_patch.json"
+CLI_CURRENTCATS="$CLI_TMP/currentcats.json"
+mkdir -p "$CLI_HOME/.outlook-graph/default"
+printf '%s' '{"client_id":"test-client","client_secret":"test-secret"}' \
+    > "$CLI_HOME/.outlook-graph/default/config.json"
+printf '%s' '{"access_token":"test-token","refresh_token":"test-refresh","expires_at":9999999999}' \
+    > "$CLI_HOME/.outlook-graph/default/credentials.json"
+chmod 600 "$CLI_HOME/.outlook-graph/default/credentials.json"
+export CLI_LOG CLI_MASTERCATS CLI_MASTERCATS_POST CLI_MASTERCATS_PATCH CLI_CURRENTCATS
+
+# >100 chars so resolve_message_id's "looks like a full ID" short-circuit
+# returns it unchanged - no cache file or listing API call needed to resolve it.
+CLI_MSG_ID=$(printf 'M%.0s' $(seq 1 110))
+
+curl() {
+    local url="" method="GET" data="" prev="" arg
+    for arg in "$@"; do
+        case "$prev" in
+            -X) method="$arg" ;;
+            -d) data="$arg" ;;
+        esac
+        case "$arg" in
+            https://graph.microsoft.com/*) url="$arg" ;;
+        esac
+        prev="$arg"
+    done
+    printf '%s %s\n' "$method" "$url" >> "$CLI_LOG"
+    case "$url" in
+        *'/me/outlook/masterCategories')
+            case "$method" in
+                GET) cat "$CLI_MASTERCATS" ;;
+                POST) cat "$CLI_MASTERCATS_POST" ;;
+                *) printf '{}' ;;
+            esac
+            ;;
+        *'/me/outlook/masterCategories/'*)
+            case "$method" in
+                PATCH) cat "$CLI_MASTERCATS_PATCH" ;;
+                DELETE) printf '' ;;
+                *) printf '{}' ;;
+            esac
+            ;;
+        *'$select=categories'*)
+            cat "$CLI_CURRENTCATS"
+            ;;
+        *'/me/messages/'*)
+            if [ "$method" = "PATCH" ] && [ -n "$data" ]; then
+                printf '%s' "$data" | jq -c '{categories: (.categories // [])}'
+            else
+                printf '{}'
+            fi
+            ;;
+        *) printf '{}' ;;
+    esac
+}
+export -f curl
+
+run_mail_cli() { HOME="$CLI_HOME" OUTLOOK_ACCOUNT=default bash "$MAIL" "$@"; }
+
+# Captures stdout/stderr/exit code of a run_mail_cli call into CLI_OUT/CLI_ERR/CLI_RC.
+run_and_capture() {
+    local outfile errfile
+    outfile=$(mktemp); errfile=$(mktemp)
+    run_mail_cli "$@" > "$outfile" 2> "$errfile"
+    CLI_RC=$?
+    CLI_OUT=$(cat "$outfile"); CLI_ERR=$(cat "$errfile")
+    rm -f "$outfile" "$errfile"
+}
+
+contains() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
+
+########################################
+# A near-miss flag (wrong case, typo, unsupported verb) must be
+# rejected - never fall through to the replace form, which would PATCH the
+# message's categories to a single-element list containing the flag text
+# itself, wiping every real category while still reporting success.
+########################################
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --Add "Follow up"
+eq "categorize --Add (wrong case) is rejected" "1" "$CLI_RC"
+if contains "$CLI_ERR" "--add" && contains "$CLI_ERR" "--remove"; then
+    eq "categorize --Add error names the two valid flags" ok ok
+else
+    eq "categorize --Add error names the two valid flags" "mentions --add and --remove" "$CLI_ERR"
+fi
+eq "categorize --Add makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --rm "Follow up"
+eq "categorize --rm (unsupported verb) is rejected" "1" "$CLI_RC"
+eq "categorize --rm makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" -add "Follow up"
+eq "categorize -add (single dash) is rejected" "1" "$CLI_RC"
+eq "categorize -add makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --append "Follow up"
+eq "categorize --append (typo verb) is rejected" "1" "$CLI_RC"
+eq "categorize --append makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --add "Follow up" "Extra"
+eq "categorize --add with a stray extra argument is rejected" "1" "$CLI_RC"
+eq "categorize --add stray-argument case makes no API call before rejecting" "" "$(cat "$CLI_LOG")"
+
+# The legitimate replace and clear forms must still work unchanged.
+printf '%s' '{"categories":["Old"]}' > "$CLI_CURRENTCATS"
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" "A,B"
+eq "categorize plain replace still works" "0" "$CLI_RC"
+eq "categorize plain replace sets the given categories" "Categories set: A, B" "$CLI_OUT"
+
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" ""
+eq "categorize empty string still clears" "0" "$CLI_RC"
+eq "categorize empty string clears output" "Categories cleared" "$CLI_OUT"
+
+########################################
+# An API error reading the master category list must never look like "no such
+# category" (mkcategory/rccategory/rmcategory), and must never be reported as a
+# false "not in the master list" (categorize --add). A transient read failure
+# that reads as "absent" would have mkcategory create a duplicate. Exercised at
+# all four call sites under a mocked failure of the masterCategories GET.
+########################################
+printf '%s' '{"error":{"code":"NetworkError","message":"boom"}}' > "$CLI_MASTERCATS"
+
+: > "$CLI_LOG"
+run_and_capture mkcategory "Follow up" red
+eq "mkcategory on unreadable master list fails closed (non-zero)" "1" "$CLI_RC"
+if contains "$CLI_ERR" "could not read the master category list"; then
+    eq "mkcategory reports the read failure clearly" ok ok
+else
+    eq "mkcategory reports the read failure clearly" "mentions could not read the master category list" "$CLI_ERR"
+fi
+eq "mkcategory does not claim success on read failure" "0" \
+    "$(contains "$CLI_OUT$CLI_ERR" "Category created" && echo 1 || echo 0)"
+eq "mkcategory issues no create POST when the list is unreadable" "0" \
+    "$(grep -c 'POST .*masterCategories$' "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture rccategory "Follow up" red
+eq "rccategory on unreadable master list fails closed (non-zero)" "1" "$CLI_RC"
+eq "rccategory does NOT misreport an unreadable list as 'no category named'" "0" \
+    "$(contains "$CLI_ERR" "no category named" && echo 1 || echo 0)"
+if contains "$CLI_ERR" "could not read the master category list"; then
+    eq "rccategory reports the read failure clearly" ok ok
+else
+    eq "rccategory reports the read failure clearly" "mentions could not read the master category list" "$CLI_ERR"
+fi
+eq "rccategory issues no PATCH when the list is unreadable" "0" \
+    "$(grep -c 'PATCH .*masterCategories/' "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture rmcategory "Follow up"
+eq "rmcategory on unreadable master list fails closed (non-zero)" "1" "$CLI_RC"
+eq "rmcategory does NOT misreport an unreadable list as 'no category named'" "0" \
+    "$(contains "$CLI_ERR" "no category named" && echo 1 || echo 0)"
+if contains "$CLI_ERR" "could not read the master category list"; then
+    eq "rmcategory reports the read failure clearly" ok ok
+else
+    eq "rmcategory reports the read failure clearly" "mentions could not read the master category list" "$CLI_ERR"
+fi
+eq "rmcategory issues no DELETE when the list is unreadable" "0" \
+    "$(grep -c 'DELETE .*masterCategories/' "$CLI_LOG")"
+
+# categorize --add: the master-list check is advisory only, so a failed check
+# must NOT block the message-level write, and must NOT be misreported as "not
+# in the master list" (we simply don't know).
+printf '%s' '{"categories":["Old"]}' > "$CLI_CURRENTCATS"
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --add "Follow up"
+eq "categorize --add still succeeds when the master-list check fails" "0" "$CLI_RC"
+eq "categorize --add still applies the category despite the check failing" \
+    "Categories set: Old, Follow up" "$CLI_OUT"
+eq "categorize --add does NOT falsely claim 'not in the master list'" "0" \
+    "$(contains "$CLI_ERR" "is not in the master list" && echo 1 || echo 0)"
+if contains "$CLI_ERR" "could not check"; then
+    eq "categorize --add surfaces the check failure as a warning" ok ok
+else
+    eq "categorize --add surfaces the check failure as a warning" "mentions could not check" "$CLI_ERR"
+fi
+eq "categorize --add still PATCHes the message despite the check failing" "1" \
+    "$(grep -c "PATCH .*/me/messages/$CLI_MSG_ID\$" "$CLI_LOG")"
+
+########################################
+# mkcategory/rccategory must report what Graph actually returned,
+# not the value the caller asked for - Graph can answer 200 with the colour
+# unchanged, and a report that echoes the request is a false success.
+########################################
+printf '%s' '{"value":[]}' > "$CLI_MASTERCATS"
+printf '%s' '{"id":"NEWCAT","displayName":"Follow Up","color":"preset3"}' > "$CLI_MASTERCATS_POST"
+run_and_capture mkcategory "Follow up" red
+eq "mkcategory reports the server's displayName/color, not the request" \
+    "Category created: Follow Up (preset3)" "$CLI_OUT"
+
+printf '%s' '{"value":[{"id":"CAT1","displayName":"Follow up","color":"preset0"}]}' > "$CLI_MASTERCATS"
+printf '%s' '{"id":"CAT1","displayName":"Follow up","color":"preset0"}' > "$CLI_MASTERCATS_PATCH"
+run_and_capture rccategory "Follow up" darkblue
+eq "rccategory reports the server's actual colour, not the requested one" \
+    "Category recoloured: Follow up (preset0)" "$CLI_OUT"
+
+unset -f curl
+rm -rf "$CLI_TMP"
 
 rm -f "$body_file" /tmp/outlook_test_last_url /tmp/outlook_test_calls
 echo "-----------------------------"

@@ -41,7 +41,7 @@ They cover the two halves of the same problem: the mail you are handling now, an
 - Inbox, unread, focused, sent, drafts, flagged, and any folder by name (recursive, `Parent/Child` paths supported)
 - Full-message reading with attachment listing; whole-conversation thread view (oldest first)
 - Search: free text or KQL field operators (`subject:`, `from:`, `to:`, `body:`, AND/OR/NOT), paged up to 1000 results, newest first
-- Flag / unflag for follow-up, categories (list master categories, apply, clear), junk / not-junk, mark read/unread
+- Flag / unflag for follow-up, categories (list, create, recolour and delete master categories; set, add, remove or clear on a message), junk / not-junk, mark read/unread
 
 **Email - writing and sending**
 - Plain and markdown drafts, reply-all-safe replies, forwards with an optional markdown comment, follow-up chasers
@@ -99,8 +99,8 @@ You normally just talk to the skill in plain language, but every command is also
 | Read | `inbox` · `unread` · `focused` · `sent` · `drafts` · `flagged` · `folder <name>` · `from <email>` · `search <query>` · `thread <id>` · `read <id>` · `preview <id>` |
 | Write | `draft` · `mddraft` · `reply` · `mdreply` · `forward <id> <to> [comment]` · `followup <sent-id>` · `update <draft> subject\|body\|mdbody\|to\|cc\|bcc\|importance` · `send <draft>` |
 | Attachments | `attachments <id>` · `download <id> [att-id]` · `attach <draft> <file>` (up to 150 MB) |
-| Triage | `markread` · `markunread` · `flag` · `unflag` · `categorize <id> <cats>` · `categories` · `junk` · `notjunk` · `archive` · `delete` |
-| Organise | `move <id> <folder>` · `batch-move <folder> <ids…>` · `mkdir` · `rename` · `rmdir [--force]` · `folders` · `subfolders` · `stats` |
+| Triage | `markread` · `markunread` · `flag` · `unflag` · `categorize <id> <cats>` · `categorize <id> --add/--remove <cat>` · `categories` · `junk` · `notjunk` · `archive` · `delete` |
+| Organise | `move <id> <folder>` · `batch-move <folder> <ids…>` · `mkdir` · `rename` · `rmdir [--force]` · `mkcategory` · `rccategory` · `rmcategory` · `folders` · `subfolders` · `stats` |
 
 `outlook-graph-calendar.sh`:
 

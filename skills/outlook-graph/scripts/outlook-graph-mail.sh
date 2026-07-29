@@ -405,6 +405,101 @@ resolve_message_id() {
     return 1
 }
 
+# Valid friendly colour names, listed in error output so a caller who guesses
+# wrong is told what to guess instead.
+CATEGORY_COLOUR_NAMES="red orange brown yellow green teal olive blue purple cranberry steel darksteel grey darkgrey black darkred darkorange darkbrown darkyellow darkgreen darkteal darkolive darkblue darkpurple darkcranberry"
+
+# Map a friendly colour name to the presetN value Graph stores. A raw presetN
+# passes straight through, so a preset Microsoft adds later is still reachable
+# without a code change. Spaces are ignored, so "dark blue" works as well as
+# "darkblue". Returns 1 and prints nothing when the value is not recognised.
+category_colour_to_preset() {
+    local v
+    v=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+    case "$v" in
+        preset[0-9]|preset1[0-9]|preset2[0-4]) printf '%s' "$v"; return 0 ;;
+        red)           printf 'preset0' ;;
+        orange)        printf 'preset1' ;;
+        brown)         printf 'preset2' ;;
+        yellow)        printf 'preset3' ;;
+        green)         printf 'preset4' ;;
+        teal)          printf 'preset5' ;;
+        olive)         printf 'preset6' ;;
+        blue)          printf 'preset7' ;;
+        purple)        printf 'preset8' ;;
+        cranberry)     printf 'preset9' ;;
+        steel)         printf 'preset10' ;;
+        darksteel)     printf 'preset11' ;;
+        grey|gray)     printf 'preset12' ;;
+        darkgrey|darkgray) printf 'preset13' ;;
+        black)         printf 'preset14' ;;
+        darkred)       printf 'preset15' ;;
+        darkorange)    printf 'preset16' ;;
+        darkbrown)     printf 'preset17' ;;
+        darkyellow)    printf 'preset18' ;;
+        darkgreen)     printf 'preset19' ;;
+        darkteal)      printf 'preset20' ;;
+        darkolive)     printf 'preset21' ;;
+        darkblue)      printf 'preset22' ;;
+        darkpurple)    printf 'preset23' ;;
+        darkcranberry) printf 'preset24' ;;
+        *) return 1 ;;
+    esac
+    return 0
+}
+
+# The master-category object whose display name matches, case-insensitively and
+# exactly. Prints nothing when there is no such category. Exact rather than
+# substring on purpose: a fuzzy match that deletes the wrong category is not
+# recoverable.
+category_json() {
+    local lc resp
+    lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    resp=$(api_call GET "/me/outlook/masterCategories")
+    if printf '%s' "$resp" | jq -e '.error' > /dev/null 2>&1; then
+        # Fail closed: an unreadable master list must never look like "no such
+        # category" to a caller. That confusion is what let mkcategory issue a
+        # duplicate create, and made rccategory/rmcategory print a
+        # self-contradictory "not found - run categories to check" for the
+        # very list that just failed to read. Print the error object and
+        # return non-zero so every caller can tell "unreadable" apart from
+        # "absent" (empty output, exit 0).
+        printf '%s' "$resp"
+        return 1
+    fi
+    printf '%s' "$resp" | jq -c --arg lc "$lc" 'first((.value // [])[] | select((.displayName | ascii_downcase) == $lc)) // empty'
+}
+
+# The id of a master category, by display name. Empty when absent.
+resolve_category_id() {
+    local json rc
+    # Piping category_json straight into jq (the old implementation) loses the
+    # error signal: jq succeeds on empty/error input either way, so the
+    # pipeline's exit status was always jq's, never category_json's. Capture
+    # output and exit code separately so a Graph error propagates here too.
+    json=$(category_json "$1") && rc=0 || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        printf '%s' "$json"
+        return 1
+    fi
+    printf '%s' "$json" | jq -r '.id // empty'
+}
+
+# Add one category to a message's category array, read from stdin. Order is
+# preserved and a category already present is not duplicated, compared
+# case-insensitively because Outlook treats category names that way.
+categories_add() {
+    jq -c --arg n "$1" \
+        'if any(.[]; ascii_downcase == ($n | ascii_downcase)) then . else . + [$n] end'
+}
+
+# Remove one category from a message's category array, read from stdin.
+# Everything else is left exactly as it was; removing an absent category is a
+# no-op rather than an error.
+categories_remove() {
+    jq -c --arg n "$1" 'map(select(ascii_downcase != ($n | ascii_downcase)))'
+}
+
 # Convert a comma/semicolon-separated address string into a JSON array of
 # Graph recipient objects. Trims surrounding whitespace and drops empties.
 # Usage: arr=$(recipients_to_json "a@x.com, b@y.com; c@z.com")
@@ -1476,19 +1571,75 @@ ${existing_body}"
 
     categorize)
         msg_id="$2"
-        cats="$3"
         if [ -z "$msg_id" ]; then
             echo "Usage: outlook-graph-mail.sh categorize <message-id> <categories>"
             echo "       <categories> is comma-separated (must match names from"
             echo "       'categories'); an empty string clears all categories."
+            echo "       categorize <message-id> --add <category>     add one, keep the rest"
+            echo "       categorize <message-id> --remove <category>  remove one, keep the rest"
             exit 1
         fi
         if ! msg_id=$(resolve_message_id "$msg_id" "messages"); then
             echo "Error: Message not found with ID: $2"
             exit 1
         fi
-        payload=$(jq -n --arg raw "$cats" \
-            '{categories: ($raw | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)))}')
+        case "$3" in
+            --add|--remove)
+                one="$4"
+                if [ -z "$one" ]; then
+                    echo "Usage: outlook-graph-mail.sh categorize <message-id> $3 <category>"
+                    exit 1
+                fi
+                if [ -n "$5" ]; then
+                    echo "Error: too many arguments for $3; expected exactly one category name" >&2
+                    echo "Usage: outlook-graph-mail.sh categorize <message-id> $3 <category>" >&2
+                    exit 1
+                fi
+                # Note: get-then-patch is not atomic; concurrent --add/--remove calls on the
+                # same message can race and the later write may drop the earlier change.
+                # Graph offers no compare-and-swap, so this limitation is accepted for
+                # single-user automation. The fix would require server-side support.
+                current_raw=$(api_call GET "/me/messages/$msg_id?\$select=categories")
+                die_on_error "$current_raw" "reading current categories"
+                current=$(printf '%s' "$current_raw" | jq -c '.categories // []')
+                if [ "$3" = "--add" ]; then
+                    updated=$(printf '%s' "$current" | categories_add "$one")
+                    cat_id_check=$(resolve_category_id "$one") && cat_rc=0 || cat_rc=$?
+                    if [ "$cat_rc" -ne 0 ]; then
+                        # The master-list check is advisory only for --add: whether
+                        # the category is coloured is separate from whether it can
+                        # be applied to this message, so a failed check must not
+                        # block the write and must not be misreported as "not in
+                        # the master list" (we simply don't know).
+                        echo "Warning: could not check '$one' against the master category list:" >&2
+                        printf '%s' "$cat_id_check" | jq -r '.error.message // .error.code' >&2
+                    elif [ -z "$cat_id_check" ]; then
+                        echo "Note: '$one' is not in the master list, so it will show without a colour."
+                        echo "      Create it with: outlook-graph-mail.sh mkcategory \"$one\" <colour>"
+                    fi
+                else
+                    updated=$(printf '%s' "$current" | categories_remove "$one")
+                fi
+                payload=$(jq -n --argjson c "$updated" '{categories: $c}')
+                ;;
+            -*)
+                # Anything else starting with '-' is a near-miss flag (wrong case,
+                # a typo, an unsupported verb), not a category name. Falling
+                # through to the replace form below would PATCH the message's
+                # categories to a single-element list containing the flag text
+                # itself, silently wiping every real category. Reject before any
+                # read or write.
+                echo "Error: unrecognised flag '$3' for categorize" >&2
+                echo "Valid flags: --add, --remove" >&2
+                echo "To replace the whole category list, pass a plain comma-separated value that does not start with '-'." >&2
+                exit 1
+                ;;
+            *)
+                cats="$3"
+                payload=$(jq -n --arg raw "$cats" \
+                    '{categories: ($raw | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)))}')
+                ;;
+        esac
         result=$(api_call PATCH "/me/messages/$msg_id" "$payload")
         if echo "$result" | jq -e '.error' > /dev/null 2>&1; then
             echo "Error setting categories:"
@@ -1496,6 +1647,104 @@ ${existing_body}"
             exit 1
         fi
         echo "$result" | jq -r 'if (.categories | length) == 0 then "Categories cleared" else "Categories set: \(.categories | join(", "))" end'
+        ;;
+
+    mkcategory)
+        cat_name="$2"
+        cat_colour="$3"
+        if [ -z "$cat_name" ]; then
+            echo "Usage: outlook-graph-mail.sh mkcategory <name> [colour]"
+            echo "       colour is a name (red, dark blue, ...) or a presetN value"
+            echo "       Names: $CATEGORY_COLOUR_NAMES"
+            exit 1
+        fi
+        preset=""
+        if [ -n "$cat_colour" ]; then
+            if ! preset=$(category_colour_to_preset "$cat_colour"); then
+                echo "Error: unknown colour '$cat_colour'" >&2
+                echo "Valid names: $CATEGORY_COLOUR_NAMES" >&2
+                echo "Or a raw preset0 to preset24 value." >&2
+                exit 1
+            fi
+        fi
+        existing=$(category_json "$cat_name") && cat_rc=0 || cat_rc=$?
+        if [ "$cat_rc" -ne 0 ]; then
+            echo "Error: could not read the master category list, so not creating '$cat_name'." >&2
+            printf '%s' "$existing" | jq -r '.error.message // .error.code' >&2
+            exit 1
+        fi
+        if [ -n "$existing" ]; then
+            existing_colour=$(printf '%s' "$existing" | jq -r '.color // "no colour"')
+            echo "Category already exists: $cat_name ($existing_colour)"
+            if [ -n "$preset" ] && [ "$preset" != "$existing_colour" ]; then
+                echo "Requested $preset differs; leaving it as it is. Use rccategory to change it."
+            fi
+            exit 0
+        fi
+        if [ -n "$preset" ]; then
+            payload=$(jq -n --arg n "$cat_name" --arg c "$preset" '{displayName: $n, color: $c}')
+        else
+            payload=$(jq -n --arg n "$cat_name" '{displayName: $n}')
+        fi
+        result=$(api_call POST "/me/outlook/masterCategories" "$payload")
+        die_on_error "$result" "creating category"
+        echo "$result" | jq -r '"Category created: \(.displayName) (\(.color // "no colour"))"'
+        ;;
+
+    rccategory)
+        cat_name="$2"
+        cat_colour="$3"
+        if [ -z "$cat_name" ] || [ -z "$cat_colour" ]; then
+            echo "Usage: outlook-graph-mail.sh rccategory <name> <colour>"
+            echo "       colour is a name (red, dark blue, ...) or a presetN value"
+            echo "       Names: $CATEGORY_COLOUR_NAMES"
+            exit 1
+        fi
+        if ! preset=$(category_colour_to_preset "$cat_colour"); then
+            echo "Error: unknown colour '$cat_colour'" >&2
+            echo "Valid names: $CATEGORY_COLOUR_NAMES" >&2
+            echo "Or a raw preset0 to preset24 value." >&2
+            exit 1
+        fi
+        cat_id=$(resolve_category_id "$cat_name") && cat_rc=0 || cat_rc=$?
+        if [ "$cat_rc" -ne 0 ]; then
+            echo "Error: could not read the master category list, so not recolouring '$cat_name'." >&2
+            printf '%s' "$cat_id" | jq -r '.error.message // .error.code' >&2
+            exit 1
+        fi
+        if [ -z "$cat_id" ]; then
+            echo "Error: no category named '$cat_name'" >&2
+            echo "Run 'categories' to see the master list." >&2
+            exit 1
+        fi
+        result=$(api_call PATCH "/me/outlook/masterCategories/$cat_id" \
+            "$(jq -n --arg c "$preset" '{color: $c}')")
+        die_on_error "$result" "recolouring category"
+        echo "$result" | jq -r '"Category recoloured: \(.displayName) (\(.color // "no colour"))"'
+        ;;
+
+    rmcategory)
+        cat_name="$2"
+        if [ -z "$cat_name" ]; then
+            echo "Usage: outlook-graph-mail.sh rmcategory <name>"
+            exit 1
+        fi
+        cat_id=$(resolve_category_id "$cat_name") && cat_rc=0 || cat_rc=$?
+        if [ "$cat_rc" -ne 0 ]; then
+            echo "Error: could not read the master category list, so not deleting '$cat_name'." >&2
+            printf '%s' "$cat_id" | jq -r '.error.message // .error.code' >&2
+            exit 1
+        fi
+        if [ -z "$cat_id" ]; then
+            echo "Error: no category named '$cat_name'" >&2
+            echo "Run 'categories' to see the master list." >&2
+            exit 1
+        fi
+        result=$(api_call DELETE "/me/outlook/masterCategories/$cat_id")
+        die_on_error "$result" "deleting category"
+        echo "Category deleted from the master list: $cat_name"
+        echo "Messages already carrying this label keep it. Strip one with:"
+        echo "  outlook-graph-mail.sh categorize <message-id> --remove \"$cat_name\""
         ;;
 
     junk)
@@ -2301,7 +2550,12 @@ ${existing_body}"
         echo "  flag <id>                  Flag for follow-up"
         echo "  unflag <id>                Clear follow-up flag"
         echo "  categorize <id> <cats>     Set categories (comma-separated; \"\" clears)"
+        echo "  categorize <id> --add <c>      Add one category, keep the rest"
+        echo "  categorize <id> --remove <c>   Remove one category, keep the rest"
         echo "  categories                 List the mailbox's master categories"
+        echo "  mkcategory <name> [colour] Create a master category"
+        echo "  rccategory <name> <colour> Recolour a master category"
+        echo "  rmcategory <name>          Delete a master category"
         echo "  junk <id>                  Move message to Junk Email"
         echo "  notjunk <id>               Move message back to Inbox"
         echo "  delete <id>                Delete message"
