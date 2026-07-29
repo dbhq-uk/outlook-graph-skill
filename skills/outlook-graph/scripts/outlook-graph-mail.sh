@@ -592,6 +592,45 @@ export_since_filter() {
     printf 'receivedDateTime ge %sT00:00:00Z' "$since"
 }
 
+# List a folder's messages as {"value":[{id, receivedDateTime}, …]}, newest
+# first, capped at $3. Paging is not optional: $top caps at 1000 per page and a
+# real mail folder holds far more, so a single request would silently export a
+# prefix of the folder and look complete.
+#
+# Returns 1 (rather than printing an error object, as run_message_search does)
+# because the caller writes files: it must stop, not iterate over an error.
+export_list_messages() {
+    local folder_id="$1" since="$2" max="${3:-1000}"
+    [[ "$max" =~ ^[0-9]+$ ]] || max=1000
+    [ "$max" -lt 1 ] && max=1
+
+    local page_size url filter merged page collected next
+    page_size=200
+    [ "$max" -lt "$page_size" ] && page_size="$max"
+
+    url="/me/mailFolders/$folder_id/messages?\$top=${page_size}&\$orderby=receivedDateTime%20desc&\$select=id,receivedDateTime"
+    if [ -n "$since" ]; then
+        filter=$(export_since_filter "$since") || return 1
+        url="${url}&\$filter=$(urlencode "$filter")"
+    fi
+
+    merged='[]'
+    while [ -n "$url" ]; do
+        page=$(api_call GET "$url")
+        if echo "$page" | jq -e '.error' >/dev/null 2>&1; then
+            echo "Error: $(echo "$page" | jq -r '.error.message // .error.code')" >&2
+            return 1
+        fi
+        merged=$(jq -n --argjson a "$merged" --argjson b "$(echo "$page" | jq '.value // []')" '$a + $b')
+        collected=$(echo "$merged" | jq 'length')
+        [ "$collected" -ge "$max" ] && break
+        next=$(echo "$page" | jq -r '."@odata.nextLink" // empty')
+        [ -z "$next" ] && break
+        url="${next#"$GRAPH_URL"}"    # nextLink is absolute; strip base for api_call
+    done
+    echo "$merged" | jq --argjson max "$max" '{value: (sort_by(.receivedDateTime) | reverse | .[0:$max])}'
+}
+
 # Commands
 case "$1" in
     inbox)

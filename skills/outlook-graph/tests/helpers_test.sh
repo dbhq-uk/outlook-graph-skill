@@ -357,6 +357,42 @@ eq "since rejects a human-written date" "1" "$(export_since_filter '1 July 2026'
 eq "since rejects an empty value"       "1" "$(export_since_filter '' 2>/dev/null; echo $?)"
 eq "since rejects a partial date"       "1" "$(export_since_filter '2026-07' 2>/dev/null; echo $?)"
 
+########################################
+# export_list_messages: paging + cap + --since encoding + error propagation.
+# $top caps at 1000 per page and a mail folder can hold far more, so paging is
+# required rather than optional.
+########################################
+eval "$(extract_fn export_list_messages)"
+
+api_call() {
+    local endpoint="$2"; printf '%s' "$endpoint" > /tmp/outlook_test_last_url
+    if [[ "$endpoint" == *skiptoken* ]]; then
+        echo '{"value":[{"id":"m3","receivedDateTime":"2026-04-01T00:00:00Z"}]}'
+    else
+        echo '{"@odata.nextLink":"'"$GRAPH_URL"'/me/messages?$skiptoken=ABC","value":[{"id":"m1","receivedDateTime":"2026-03-01T00:00:00Z"},{"id":"m2","receivedDateTime":"2026-02-01T00:00:00Z"}]}'
+    fi
+}
+eq "export pages through nextLink" "3" "$(export_list_messages FID '' 100 | jq '.value|length')"
+eq "export cap stops paging"       "2" "$(export_list_messages FID '' 2 | jq '.value|length')"
+eq "export sorts newest-first" "m3,m1,m2" \
+   "$(export_list_messages FID '' 100 | jq -r '[.value[].id]|join(",")')"
+
+export_list_messages FID '2026-07-01' 1 >/dev/null
+eq "export encodes --since into \$filter" "1" \
+   "$(grep -c 'receivedDateTime%20ge%202026-07-01T00%3A00%3A00Z' /tmp/outlook_test_last_url)"
+eq "export scopes the query to the folder" "1" \
+   "$(grep -c '/me/mailFolders/FID/messages' /tmp/outlook_test_last_url)"
+
+# A bad --since must stop before any request is issued.
+eq "export rejects a bad --since without calling Graph" "1" \
+   "$(export_list_messages FID 'last tuesday' 5 >/dev/null 2>&1; echo $?)"
+
+api_call() { echo '{"error":{"code":"BadRequest","message":"nope"}}'; }
+eq "export propagates a Graph error as rc1" "1" \
+   "$(export_list_messages FID '' 10 >/dev/null 2>&1; echo $?)"
+eq "export reports the Graph error message" "1" \
+   "$(export_list_messages FID '' 10 2>&1 >/dev/null | grep -c 'nope')"
+
 rm -f "$body_file" /tmp/outlook_test_last_url /tmp/outlook_test_calls
 echo "-----------------------------"
 printf 'PASS=%d FAIL=%d\n' "$PASS" "$FAIL"
