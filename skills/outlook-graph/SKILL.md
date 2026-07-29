@@ -286,6 +286,10 @@ ${CLAUDE_SKILL_DIR}/../pst-to-markdown/.venv/bin/python \
 The staging directory's layout becomes the archive's folder grouping, so
 `export "Inbox/Clients"` lands under `emails/Inbox/Clients/`.
 
+Dedupe only works for mail that has a `Message-ID` header — always true for
+received mail, not guaranteed for drafts. A header-less message has nothing to
+dedupe against and is re-archived on every overlapping run.
+
 ### Email Management
 
 ```bash
