@@ -456,7 +456,7 @@ category_json() {
     local lc
     lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
     api_call GET "/me/outlook/masterCategories" \
-        | jq -c --arg lc "$lc" 'first(.value[] | select((.displayName | ascii_downcase) == $lc)) // empty'
+        | jq -c --arg lc "$lc" 'first((.value // [])[] | select((.displayName | ascii_downcase) == $lc)) // empty'
 }
 
 # The id of a master category, by display name. Empty when absent.

@@ -363,6 +363,8 @@ eq "resolve category is case-insensitive" "C1" "$(mock_cats; resolve_category_id
 eq "resolve category does not substring match" "" "$(mock_cats; resolve_category_id 'Follow')"
 eq "resolve category absent is empty" "" "$(mock_cats; resolve_category_id 'Nope')"
 eq "category_json carries the colour" "preset4" "$(mock_cats; category_json 'Follow up later' | jq -r '.color')"
+eq "resolve category on API error is empty" "" \
+   "$(api_call() { echo '{"error":{"code":"NetworkError","message":"boom"}}'; }; resolve_category_id 'Follow up')"
 
 rm -f "$body_file" /tmp/outlook_test_last_url /tmp/outlook_test_calls
 echo "-----------------------------"
