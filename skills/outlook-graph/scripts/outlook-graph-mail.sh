@@ -565,6 +565,33 @@ run_message_search() {
     echo "$merged" | jq --argjson max "$max" '{value: (sort_by(.receivedDateTime) | reverse | .[0:$max])}'
 }
 
+# --- .eml export ------------------------------------------------------------
+# Staging filename for one exported message. extract_pst.py derives the archive
+# folder name from the message's own headers, so this name only has to be unique
+# and to sort chronologically in a directory listing. The short id is the same
+# 20-character slice the listing commands print, so an id copied off a listing
+# appears verbatim here. '/' is stripped because the id is server-supplied and
+# would otherwise let a crafted id escape the output directory.
+export_eml_filename() {
+    local received="$1" msg_id="$2" stamp short
+    stamp=$(printf '%s' "$received" | tr -d ':-' | sed 's/\.[0-9]*//; s/Z$//; s/T/_/')
+    short=$(printf '%s' "${msg_id: -20}" | tr -d '/')
+    printf '%s_%s.eml' "$stamp" "$short"
+}
+
+# Validate a --since value and print the Graph $filter fragment for it. The
+# validation is the point: an unparseable date reaches Graph as a filter that
+# either 400s or matches nothing, and "matches nothing" is indistinguishable
+# from "no new mail" - so a typo would silently look like a clean sync.
+export_since_filter() {
+    local since="$1"
+    case "$since" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+        *) echo "Error: --since expects YYYY-MM-DD, got '$since'" >&2; return 1 ;;
+    esac
+    printf 'receivedDateTime ge %sT00:00:00Z' "$since"
+}
+
 # Commands
 case "$1" in
     inbox)

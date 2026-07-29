@@ -331,6 +331,32 @@ eq "from_to_json omits name when unset" '{"emailAddress":{"address":"a@x.com"}}'
 eq "from_to_json includes name when given" '{"emailAddress":{"address":"a@x.com","name":"Dan G"}}' \
    "$(from_to_json 'a@x.com' 'Dan G' | jq -c .)"
 
+########################################
+# export helpers: staging filename + --since validation.
+# The filename only has to be unique and sortable - extract_pst.py derives the
+# archive folder name from the message's own headers, not from this name.
+########################################
+eval "$(extract_fn export_eml_filename)"
+eval "$(extract_fn export_since_filter)"
+
+eq "export filename from Graph timestamp" "20260729_101200_AAAAAAAAAAAAAAAAAAAA.eml" \
+   "$(export_eml_filename '2026-07-29T10:12:00Z' 'PREFIXAAAAAAAAAAAAAAAAAAAA')"
+eq "export filename drops fractional seconds" "20260729_101200_abcdefghijklmnopqrst.eml" \
+   "$(export_eml_filename '2026-07-29T10:12:00.5230000Z' 'abcdefghijklmnopqrst')"
+# The id is server-supplied; a '/' in it would escape the output directory.
+case "$(export_eml_filename '2026-07-29T10:12:00Z' 'aaaa/bbbb/cccc/dddd/eeee')" in
+  */*) eq "export filename strips path separators" "no slash" "contains a slash";;
+  *)   eq "export filename strips path separators" ok ok;;
+esac
+
+eq "since filter builds a Graph filter" "receivedDateTime ge 2026-07-01T00:00:00Z" \
+   "$(export_since_filter '2026-07-01')"
+# A malformed date must fail here. Sent to Graph it comes back as a generic
+# BadRequest, or worse silently matches nothing and looks like "no new mail".
+eq "since rejects a human-written date" "1" "$(export_since_filter '1 July 2026' 2>/dev/null; echo $?)"
+eq "since rejects an empty value"       "1" "$(export_since_filter '' 2>/dev/null; echo $?)"
+eq "since rejects a partial date"       "1" "$(export_since_filter '2026-07' 2>/dev/null; echo $?)"
+
 rm -f "$body_file" /tmp/outlook_test_last_url /tmp/outlook_test_calls
 echo "-----------------------------"
 printf 'PASS=%d FAIL=%d\n' "$PASS" "$FAIL"
