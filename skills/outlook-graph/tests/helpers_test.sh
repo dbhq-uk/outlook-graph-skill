@@ -337,6 +337,72 @@ eq "from_to_json includes name when given" '{"emailAddress":{"address":"a@x.com"
    "$(from_to_json 'a@x.com' 'Dan G' | jq -c .)"
 
 ########################################
+# export helpers: staging filename + --since validation.
+# The filename only has to be unique and sortable - extract_pst.py derives the
+# archive folder name from the message's own headers, not from this name.
+########################################
+eval "$(extract_fn export_eml_filename)"
+eval "$(extract_fn export_since_filter)"
+
+eq "export filename from Graph timestamp" "20260729_101200_AAAAAAAAAAAAAAAAAAAA.eml" \
+   "$(export_eml_filename '2026-07-29T10:12:00Z' 'PREFIXAAAAAAAAAAAAAAAAAAAA')"
+eq "export filename drops fractional seconds" "20260729_101200_abcdefghijklmnopqrst.eml" \
+   "$(export_eml_filename '2026-07-29T10:12:00.5230000Z' 'abcdefghijklmnopqrst')"
+# The id is server-supplied; a '/' in it would escape the output directory.
+case "$(export_eml_filename '2026-07-29T10:12:00Z' 'aaaa/bbbb/cccc/dddd/eeee')" in
+  */*) eq "export filename strips path separators" "no slash" "contains a slash";;
+  *)   eq "export filename strips path separators" ok ok;;
+esac
+
+eq "since filter builds a Graph filter" "receivedDateTime ge 2026-07-01T00:00:00Z" \
+   "$(export_since_filter '2026-07-01')"
+# A malformed date must fail here. Sent to Graph it comes back as a generic
+# BadRequest, or worse silently matches nothing and looks like "no new mail".
+eq "since rejects a human-written date" "1" "$(export_since_filter '1 July 2026' 2>/dev/null; echo $?)"
+eq "since rejects an empty value"       "1" "$(export_since_filter '' 2>/dev/null; echo $?)"
+eq "since rejects a partial date"       "1" "$(export_since_filter '2026-07' 2>/dev/null; echo $?)"
+
+########################################
+# export_list_messages: paging + cap + --since encoding + error propagation.
+# $top caps at 1000 per page and a mail folder can hold far more, so paging is
+# required rather than optional.
+########################################
+eval "$(extract_fn export_list_messages)"
+
+api_call() {
+    local endpoint="$2"; printf '%s' "$endpoint" > /tmp/outlook_test_last_url
+    if [[ "$endpoint" == *skiptoken* ]]; then
+        echo '{"value":[{"id":"m3","receivedDateTime":"2026-04-01T00:00:00Z"}]}'
+    else
+        echo '{"@odata.nextLink":"'"$GRAPH_URL"'/me/messages?$skiptoken=ABC","value":[{"id":"m1","receivedDateTime":"2026-03-01T00:00:00Z"},{"id":"m2","receivedDateTime":"2026-02-01T00:00:00Z"}]}'
+    fi
+}
+eq "export pages through nextLink" "3" "$(export_list_messages FID '' 100 | jq '.value|length')"
+eq "export cap stops paging"       "2" "$(export_list_messages FID '' 2 | jq '.value|length')"
+eq "export sorts newest-first" "m3,m1,m2" \
+   "$(export_list_messages FID '' 100 | jq -r '[.value[].id]|join(",")')"
+
+export_list_messages FID '2026-07-01' 1 >/dev/null
+eq "export encodes --since into \$filter" "1" \
+   "$(grep -c 'receivedDateTime%20ge%202026-07-01T00%3A00%3A00Z' /tmp/outlook_test_last_url)"
+eq "export scopes the query to the folder" "1" \
+   "$(grep -c '/me/mailFolders/FID/messages' /tmp/outlook_test_last_url)"
+
+# A bad --since must stop before any request is issued: capture the URL from
+# the last real call, run the rejected one, then check nothing overwrote it.
+last_url_before=$(cat /tmp/outlook_test_last_url)
+eq "export rejects a bad --since without calling Graph" "1" \
+   "$(export_list_messages FID 'last tuesday' 5 >/dev/null 2>&1; echo $?)"
+eq "export rejects a bad --since without calling Graph (no request issued)" \
+   "$last_url_before" "$(cat /tmp/outlook_test_last_url)"
+
+api_call() { echo '{"error":{"code":"BadRequest","message":"nope"}}'; }
+eq "export propagates a Graph error as rc1" "1" \
+   "$(export_list_messages FID '' 10 >/dev/null 2>&1; echo $?)"
+eq "export reports the Graph error message" "1" \
+   "$(export_list_messages FID '' 10 2>&1 >/dev/null | grep -c 'nope')"
+
+########################################
 # category_colour_to_preset: Graph stores colours as opaque presetN values.
 # Both a friendly name and a raw preset are accepted, because presetN means
 # nothing to a reader and a name cannot reach a preset Microsoft adds later.

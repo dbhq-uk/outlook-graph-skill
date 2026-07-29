@@ -129,7 +129,16 @@ Each email becomes a folder holding `email.md` (YAML frontmatter: message id, da
 sha256sum -c manifest.sha256
 ```
 
-That chain of custody is the point: it is built for archives someone will later ask you to stand behind. `--append` re-runs incrementally by Message-ID, and extraction falls back from `libratom` to `readpst` to a directory of pre-extracted `.eml` files. Nothing is uploaded and nothing is sent.
+That chain of custody is the point: it is built for archives someone will later ask you to stand behind. `--append` re-runs incrementally by Message-ID. A directory of pre-extracted `.eml` files is always handled directly, whatever backends happen to be installed; a PST file falls back from `libratom` to `readpst`. Nothing is uploaded and nothing is sent.
+
+A PST is a snapshot, so the two skills join up to carry an archive forward: `outlook-graph` exports new mail as `.eml` and `pst-to-markdown` appends it in the same shape, deduplicating by `Message-ID`.
+
+```bash
+${CLAUDE_SKILL_DIR}/../outlook-graph/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./staging/ --since 2026-07-01
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py ./staging/ ./archive/ --append
+```
+
+`export` also takes `--count N` to cap how many messages it writes, newest first (default 1000).
 
 | Flag | Purpose |
 |---|---|

@@ -660,6 +660,72 @@ run_message_search() {
     echo "$merged" | jq --argjson max "$max" '{value: (sort_by(.receivedDateTime) | reverse | .[0:$max])}'
 }
 
+# --- .eml export ------------------------------------------------------------
+# Staging filename for one exported message. extract_pst.py derives the archive
+# folder name from the message's own headers, so this name only has to be unique
+# and to sort chronologically in a directory listing. The short id is the same
+# 20-character slice the listing commands print, so an id copied off a listing
+# appears verbatim here. '/' is stripped because the id is server-supplied and
+# would otherwise let a crafted id escape the output directory.
+export_eml_filename() {
+    local received="$1" msg_id="$2" stamp short
+    stamp=$(printf '%s' "$received" | tr -d ':-' | sed 's/\.[0-9]*//; s/Z$//; s/T/_/')
+    short=$(printf '%s' "${msg_id: -20}" | tr -d '/')
+    printf '%s_%s.eml' "$stamp" "$short"
+}
+
+# Validate a --since value and print the Graph $filter fragment for it. The
+# validation is the point: an unparseable date reaches Graph as a filter that
+# either 400s or matches nothing, and "matches nothing" is indistinguishable
+# from "no new mail" - so a typo would silently look like a clean sync.
+export_since_filter() {
+    local since="$1"
+    case "$since" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+        *) echo "Error: --since expects YYYY-MM-DD, got '$since'" >&2; return 1 ;;
+    esac
+    printf 'receivedDateTime ge %sT00:00:00Z' "$since"
+}
+
+# List a folder's messages as {"value":[{id, receivedDateTime}, …]}, newest
+# first, capped at $3. Paging is not optional: $top caps at 1000 per page and a
+# real mail folder holds far more, so a single request would silently export a
+# prefix of the folder and look complete.
+#
+# Returns 1 (rather than printing an error object, as run_message_search does)
+# because the caller writes files: it must stop, not iterate over an error.
+export_list_messages() {
+    local folder_id="$1" since="$2" max="${3:-1000}"
+    [[ "$max" =~ ^[0-9]+$ ]] || max=1000
+    [ "$max" -lt 1 ] && max=1
+
+    local page_size url filter merged page collected next
+    page_size=200
+    [ "$max" -lt "$page_size" ] && page_size="$max"
+
+    url="/me/mailFolders/$folder_id/messages?\$top=${page_size}&\$orderby=receivedDateTime%20desc&\$select=id,receivedDateTime"
+    if [ -n "$since" ]; then
+        filter=$(export_since_filter "$since") || return 1
+        url="${url}&\$filter=$(urlencode "$filter")"
+    fi
+
+    merged='[]'
+    while [ -n "$url" ]; do
+        page=$(api_call GET "$url")
+        if echo "$page" | jq -e '.error' >/dev/null 2>&1; then
+            echo "Error: $(echo "$page" | jq -r '.error.message // .error.code')" >&2
+            return 1
+        fi
+        merged=$(jq -n --argjson a "$merged" --argjson b "$(echo "$page" | jq '.value // []')" '$a + $b')
+        collected=$(echo "$merged" | jq 'length')
+        [ "$collected" -ge "$max" ] && break
+        next=$(echo "$page" | jq -r '."@odata.nextLink" // empty')
+        [ -z "$next" ] && break
+        url="${next#"$GRAPH_URL"}"    # nextLink is absolute; strip base for api_call
+    done
+    echo "$merged" | jq --argjson max "$max" '{value: (sort_by(.receivedDateTime) | reverse | .[0:$max])}'
+}
+
 # Commands
 case "$1" in
     inbox)
@@ -2197,6 +2263,110 @@ ${existing_body}"
         done
         ;;
 
+    export)
+        folder_name="$2"
+        out_dir="$3"
+        if [ -z "$folder_name" ] || [ -z "$out_dir" ]; then
+            echo "Usage: outlook-graph-mail.sh export <folder> <output-dir> [--since YYYY-MM-DD] [--count N]"
+            echo "       Writes each message as raw .eml for pst-to-markdown to append."
+            exit 1
+        fi
+        shift 3
+
+        since=""
+        cap=1000
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --since) [ -n "$2" ] || { echo "Error: --since requires a date" >&2; exit 1; }; since="$2"; shift 2 ;;
+                --count) [ -n "$2" ] || { echo "Error: --count requires a number" >&2; exit 1; }; cap="$2"; shift 2 ;;
+                *) echo "Error: unknown option '$1'" >&2; exit 1 ;;
+            esac
+        done
+
+        if ! folder_id=$(resolve_folder_id "$folder_name"); then
+            echo "Error: Folder not found: $folder_name" >&2
+            exit 1
+        fi
+
+        # The staging sub-path becomes the archive's folder grouping, so mirror
+        # the folder the user named. '..' is stripped and leading slashes
+        # trimmed so a folder name cannot climb out of $out_dir.
+        rel_dir=$(printf '%s' "$folder_name" | sed 's#\.\.##g; s#^/*##; s#/*$##')
+        dest_dir="$out_dir/$rel_dir"
+        mkdir -p "$dest_dir"
+
+        messages=$(export_list_messages "$folder_id" "$since" "$cap") || exit 1
+        total=$(printf '%s' "$messages" | jq '.value | length')
+        if [ "$total" = "0" ]; then
+            echo "No messages to export from '$folder_name'."
+            exit 0
+        fi
+
+        echo "Exporting $total message(s) from '$folder_name' to $dest_dir ..."
+        written=0
+        failed=0
+        # Set once a token refresh has been attempted, so a genuinely dead
+        # token (revoked, bad creds) costs one failed refresh call for the
+        # whole export rather than one per remaining message.
+        token_refreshed=0
+        # Process substitution, NOT a pipe: a piped `while` runs in a subshell,
+        # so $written and $failed would be discarded and the summary would
+        # always report zero.
+        while IFS=$'\t' read -r msg_id received; do
+            [ -n "$msg_id" ] || continue
+            fname=$(export_eml_filename "$received" "$msg_id")
+            # -f so an HTTP error is a curl failure rather than a Graph error
+            # body saved as an .eml, which the next step would parse as mail.
+            if curl -sf -X GET "${GRAPH_URL}/me/messages/$msg_id/\$value" \
+                -H "Authorization: Bearer $ACCESS_TOKEN" \
+                -o "$dest_dir/$fname"; then
+                written=$((written + 1))
+                continue
+            fi
+
+            # This curl bypasses api_call's reactive refresh (that refresh
+            # happens inside export_list_messages's own command-substitution
+            # subshell and is lost to this parent), so on a long export the
+            # snapshotted $ACCESS_TOKEN can go stale mid-run. Refresh once
+            # and retry this one message before counting it as failed.
+            retry_ok=1
+            if [ "$token_refreshed" -eq 0 ]; then
+                token_refreshed=1
+                ACCESS_TOKEN=$(refresh_access_token) || true
+                if curl -sf -X GET "${GRAPH_URL}/me/messages/$msg_id/\$value" \
+                    -H "Authorization: Bearer $ACCESS_TOKEN" \
+                    -o "$dest_dir/$fname"; then
+                    retry_ok=0
+                fi
+            fi
+
+            if [ "$retry_ok" -eq 0 ]; then
+                written=$((written + 1))
+                continue
+            fi
+
+            rm -f "$dest_dir/$fname"
+            echo "FAILED: $fname (MIME fetch error from Graph)"
+            failed=$((failed + 1))
+        done < <(printf '%s' "$messages" | jq -r '.value[] | "\(.id)\t\(.receivedDateTime)"')
+
+        echo "Wrote $written .eml file(s) to $dest_dir"
+        if [ "$failed" -gt 0 ]; then
+            echo "$failed message(s) failed and were not written."
+        fi
+        echo
+        echo "Append to a markdown archive with:"
+        echo "  extract_pst.py $out_dir <archive-dir> --append"
+        # A caller chaining `export && extract_pst.py --append` must not
+        # proceed past a partial export, so a non-zero failed count is a
+        # non-zero exit - checked explicitly (not `[ … ] && exit 1`) because
+        # that form as the branch's last command would itself trip `set -e`
+        # when the test is false, i.e. on the success path.
+        if [ "$failed" -gt 0 ]; then
+            exit 1
+        fi
+        ;;
+
     attach)
         draft_id="$2"
         file_path="$3"
@@ -2355,6 +2525,7 @@ ${existing_body}"
         echo "  thread <id> [count]        List the whole conversation, oldest first"
         echo "  read <id>                  Read full message"
         echo "  preview <id>               Quick preview"
+        echo "  export <folder> <dir>      Write folder's messages as .eml for archiving"
         echo
         echo "Sending:"
         echo "  draft <to> <subject> <body>    Create plain text draft"

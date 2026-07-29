@@ -264,6 +264,35 @@ Upload method is automatic based on file size:
 
 Multiple attachments can be added by calling `attach` multiple times on the same draft.
 
+### Exporting Mail to a Markdown Archive
+
+Write a folder's messages out as raw `.eml`, then let `pst-to-markdown` append
+them to an archive. The PST backfills history; this keeps it current.
+
+```bash
+# Everything in a folder
+${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./staging/
+
+# Only what arrived since a date (use the archive's newest entry)
+${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./staging/ --since 2026-07-01
+
+# Cap how many messages are exported, newest first (default 1000)
+${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./staging/ --count 50
+
+# Then append into the archive - dedupes by Message-ID, so an overlapping
+# --since window is harmless
+${CLAUDE_SKILL_DIR}/../pst-to-markdown/.venv/bin/python \
+  ${CLAUDE_SKILL_DIR}/../pst-to-markdown/scripts/extract_pst.py \
+  ./staging/ ./archive/ --append
+```
+
+The staging directory's layout becomes the archive's folder grouping, so
+`export "Inbox/Clients"` lands under `emails/Inbox/Clients/`.
+
+Dedupe only works for mail that has a `Message-ID` header — always true for
+received mail, not guaranteed for drafts. A header-less message has nothing to
+dedupe against and is re-archived on every overlapping run.
+
 ### Email Management
 
 ```bash
