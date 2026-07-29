@@ -2014,6 +2014,76 @@ ${existing_body}"
         done
         ;;
 
+    export)
+        folder_name="$2"
+        out_dir="$3"
+        if [ -z "$folder_name" ] || [ -z "$out_dir" ]; then
+            echo "Usage: outlook-graph-mail.sh export <folder> <output-dir> [--since YYYY-MM-DD] [--count N]"
+            echo "       Writes each message as raw .eml for pst-to-markdown to append."
+            exit 1
+        fi
+        shift 3
+
+        since=""
+        cap=1000
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --since) [ -n "$2" ] || { echo "Error: --since requires a date" >&2; exit 1; }; since="$2"; shift 2 ;;
+                --count) [ -n "$2" ] || { echo "Error: --count requires a number" >&2; exit 1; }; cap="$2"; shift 2 ;;
+                *) echo "Error: unknown option '$1'" >&2; exit 1 ;;
+            esac
+        done
+
+        if ! folder_id=$(resolve_folder_id "$folder_name"); then
+            echo "Error: Folder not found: $folder_name" >&2
+            exit 1
+        fi
+
+        # The staging sub-path becomes the archive's folder grouping, so mirror
+        # the folder the user named. '..' is stripped and leading slashes
+        # trimmed so a folder name cannot climb out of $out_dir.
+        rel_dir=$(printf '%s' "$folder_name" | sed 's#\.\.##g; s#^/*##; s#/*$##')
+        dest_dir="$out_dir/$rel_dir"
+        mkdir -p "$dest_dir"
+
+        messages=$(export_list_messages "$folder_id" "$since" "$cap") || exit 1
+        total=$(printf '%s' "$messages" | jq '.value | length')
+        if [ "$total" = "0" ]; then
+            echo "No messages to export from '$folder_name'."
+            exit 0
+        fi
+
+        echo "Exporting $total message(s) from '$folder_name' to $dest_dir ..."
+        written=0
+        failed=0
+        # Process substitution, NOT a pipe: a piped `while` runs in a subshell,
+        # so $written and $failed would be discarded and the summary would
+        # always report zero.
+        while IFS=$'\t' read -r msg_id received; do
+            [ -n "$msg_id" ] || continue
+            fname=$(export_eml_filename "$received" "$msg_id")
+            # -f so an HTTP error is a curl failure rather than a Graph error
+            # body saved as an .eml, which the next step would parse as mail.
+            if ! curl -sf -X GET "${GRAPH_URL}/me/messages/$msg_id/\$value" \
+                -H "Authorization: Bearer $ACCESS_TOKEN" \
+                -o "$dest_dir/$fname"; then
+                rm -f "$dest_dir/$fname"
+                echo "FAILED: $fname (MIME fetch error from Graph)"
+                failed=$((failed + 1))
+                continue
+            fi
+            written=$((written + 1))
+        done < <(printf '%s' "$messages" | jq -r '.value[] | "\(.id)\t\(.receivedDateTime)"')
+
+        echo "Wrote $written .eml file(s) to $dest_dir"
+        if [ "$failed" -gt 0 ]; then
+            echo "$failed message(s) failed and were not written."
+        fi
+        echo
+        echo "Append to a markdown archive with:"
+        echo "  extract_pst.py $out_dir <archive-dir> --append"
+        ;;
+
     attach)
         draft_id="$2"
         file_path="$3"
@@ -2172,6 +2242,7 @@ ${existing_body}"
         echo "  thread <id> [count]        List the whole conversation, oldest first"
         echo "  read <id>                  Read full message"
         echo "  preview <id>               Quick preview"
+        echo "  export <folder> <dir>      Write folder's messages as .eml for archiving"
         echo
         echo "Sending:"
         echo "  draft <to> <subject> <body>    Create plain text draft"
