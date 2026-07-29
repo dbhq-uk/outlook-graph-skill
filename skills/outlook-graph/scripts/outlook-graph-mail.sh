@@ -1532,25 +1532,6 @@ ${existing_body}"
         fi
         ;;
 
-    rncategory)
-        cat_name="$2"
-        new_name="$3"
-        if [ -z "$cat_name" ] || [ -z "$new_name" ]; then
-            echo "Usage: outlook-graph-mail.sh rncategory <old-name> <new-name>"
-            exit 1
-        fi
-        cat_id=$(resolve_category_id "$cat_name")
-        if [ -z "$cat_id" ]; then
-            echo "Error: no category named '$cat_name'" >&2
-            echo "Run 'categories' to see the master list." >&2
-            exit 1
-        fi
-        result=$(api_call PATCH "/me/outlook/masterCategories/$cat_id" \
-            "$(jq -n --arg n "$new_name" '{displayName: $n}')")
-        die_on_error "$result" "renaming category"
-        echo "Category renamed: $cat_name -> $new_name"
-        ;;
-
     rccategory)
         cat_name="$2"
         cat_colour="$3"
