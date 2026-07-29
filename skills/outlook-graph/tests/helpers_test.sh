@@ -491,7 +491,7 @@ run_and_capture() {
 contains() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
 
 ########################################
-# Finding 1: a near-miss flag (wrong case, typo, unsupported verb) must be
+# A near-miss flag (wrong case, typo, unsupported verb) must be
 # rejected - never fall through to the replace form, which would PATCH the
 # message's categories to a single-element list containing the flag text
 # itself, wiping every real category while still reporting success.
@@ -539,11 +539,11 @@ eq "categorize empty string still clears" "0" "$CLI_RC"
 eq "categorize empty string clears output" "Categories cleared" "$CLI_OUT"
 
 ########################################
-# Finding 2: an API error reading the master category list must never look
-# like "no such category" (mkcategory/rccategory/rmcategory), and must never
-# be reported as a false "not in the master list" (categorize --add). Proven
-# here at all four call sites under a mocked transient failure of the
-# masterCategories GET, matching how the reviewer verified the bug.
+# An API error reading the master category list must never look like "no such
+# category" (mkcategory/rccategory/rmcategory), and must never be reported as a
+# false "not in the master list" (categorize --add). A transient read failure
+# that reads as "absent" would have mkcategory create a duplicate. Exercised at
+# all four call sites under a mocked failure of the masterCategories GET.
 ########################################
 printf '%s' '{"error":{"code":"NetworkError","message":"boom"}}' > "$CLI_MASTERCATS"
 
@@ -606,7 +606,7 @@ eq "categorize --add still PATCHes the message despite the check failing" "1" \
     "$(grep -c "PATCH .*/me/messages/$CLI_MSG_ID\$" "$CLI_LOG")"
 
 ########################################
-# Finding 3: mkcategory/rccategory must report what Graph actually returned,
+# mkcategory/rccategory must report what Graph actually returned,
 # not the value the caller asked for - Graph can answer 200 with the colour
 # unchanged, and a report that echoes the request is a false success.
 ########################################
