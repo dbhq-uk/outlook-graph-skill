@@ -338,7 +338,7 @@ eq "from_to_json includes name when given" '{"emailAddress":{"address":"a@x.com"
 
 ########################################
 # export helpers: staging filename + --since validation.
-# The filename only has to be unique and sortable - extract_pst.py derives the
+# The filename only has to be unique and sortable - outlook_to_md.py derives the
 # archive folder name from the message's own headers, not from this name.
 ########################################
 eval "$(extract_fn export_eml_filename)"

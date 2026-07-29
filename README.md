@@ -23,9 +23,9 @@ Two skills ship in this pack:
 | Skill | What it does | Needs |
 |---|---|---|
 | **`outlook-graph`** | Live Microsoft 365 mail and calendar via the Graph API | OAuth, network |
-| **`pst-to-markdown`** | Turns a PST archive into integrity-verified markdown, offline | Nothing but a file |
+| **`outlook-to-md`** | Turns PST exports and live mail into integrity-verified markdown, offline | Nothing but a file |
 
-They cover the two halves of the same problem: the mail you are handling now, and the mail you were handed in a box. `pst-to-markdown` needs no credentials and makes no network calls - it reads a file on disk.
+They cover the two halves of the same problem: the mail you are handling now, and the mail you were handed in a box - and they join up, so one archive spans both. `outlook-to-md` itself needs no credentials and makes no network calls; it reads files on disk, whether they came out of a PST or out of `outlook-graph`.
 
 ## Why it is different
 
@@ -115,12 +115,12 @@ You normally just talk to the skill in plain language, but every command is also
 
 All scripts accept `--account <name>` / `-a <name>` (or `OUTLOOK_ACCOUNT`) before the command.
 
-## PST archives
+## Markdown archives
 
-`pst-to-markdown` turns an Outlook PST export into a directory of markdown you can grep, diff and keep. Ask it in plain language (*"extract archive.pst"*), or drive it directly:
+`outlook-to-md` turns an Outlook PST export into a directory of markdown you can grep, diff and keep. Ask it in plain language (*"extract archive.pst"*), or drive it directly:
 
 ```bash
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py archive.pst ./out/ --verbose
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py archive.pst ./out/ --verbose
 ```
 
 Each email becomes a folder holding `email.md` (YAML frontmatter: message id, date, from/to/cc, subject, attachment hashes), the original `email.eml`, its attachments, and a `checksums.sha256`. A master `manifest.sha256` hashes every checksum file plus the index and records the source PST's own hash, so the whole extraction verifies in one command:
@@ -131,11 +131,11 @@ sha256sum -c manifest.sha256
 
 That chain of custody is the point: it is built for archives someone will later ask you to stand behind. `--append` re-runs incrementally by Message-ID. A directory of pre-extracted `.eml` files is always handled directly, whatever backends happen to be installed; a PST file falls back from `libratom` to `readpst`. Nothing is uploaded and nothing is sent.
 
-A PST is a snapshot, so the two skills join up to carry an archive forward: `outlook-graph` exports new mail as `.eml` and `pst-to-markdown` appends it in the same shape, deduplicating by `Message-ID`.
+A PST is a snapshot, so the two skills join up to carry an archive forward: `outlook-graph` exports new mail as `.eml` and `outlook-to-md` appends it in the same shape, deduplicating by `Message-ID`.
 
 ```bash
 ${CLAUDE_SKILL_DIR}/../outlook-graph/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./staging/ --since 2026-07-01
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py ./staging/ ./archive/ --append
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py ./staging/ ./archive/ --append
 ```
 
 `export` also takes `--count N` to cap how many messages it writes, newest first (default 1000).
@@ -159,9 +159,9 @@ Checked per skill - a missing dependency skips that skill rather than failing th
 | Skill | Required | Optional |
 |---|---|---|
 | `outlook-graph` | `azure-cli` · `jq` · `curl` | `pandoc` (markdown-formatted emails) |
-| `pst-to-markdown` | `python3` (3.9+) | `readpst` (`pst-utils`; fallback backend) |
+| `outlook-to-md` | `python3` (3.9+) | `readpst` (`pst-utils`; fallback backend) |
 
-`pst-to-markdown` provisions its own virtualenv on install (`libratom`, `html2text`, `python-dateutil`, `tqdm`).
+`outlook-to-md` provisions its own virtualenv on install (`libratom`, `html2text`, `python-dateutil`, `tqdm`).
 
 **A note on Python versions.** `libratom`, the preferred PST backend, pins `numpy==1.23.5`, whose newest wheel is cp311 - so it cannot install on Python 3.12 or later, which is what most current systems ship. `setup.sh` handles this rather than failing: it prefers a 3.9-3.11 interpreter if one is on your PATH, and otherwise builds the venv without `libratom` and tells you plainly that extraction then depends on `readpst`. Install `pst-utils` (or a 3.11 interpreter) and you are covered either way. CI asserts both paths - the suite runs on 3.9/3.11/3.13 without `libratom`, and a separate job proves the full documented install on 3.11.
 

@@ -2,17 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let `outlook-graph` export live mail as `.eml` so `pst-to-markdown` can append it to an existing archive in the identical shape.
+**Goal:** Let `outlook-graph` export live mail as `.eml` so `outlook-to-md` can append it to an existing archive in the identical shape.
 
-**Architecture:** A new `export` verb in `outlook-graph-mail.sh` writes raw MIME from Graph's `$value` endpoint into a staging directory whose layout mirrors the mail folder. `extract_pst.py` then consumes that directory in its existing directory mode with `--append`, which dedupes by `Message-ID`. The staging format is plain `.eml` and nothing more, so the archive format stays owned by `pst-to-markdown` alone.
+**Architecture:** A new `export` verb in `outlook-graph-mail.sh` writes raw MIME from Graph's `$value` endpoint into a staging directory whose layout mirrors the mail folder. `outlook_to_md.py` then consumes that directory in its existing directory mode with `--append`, which dedupes by `Message-ID`. The staging format is plain `.eml` and nothing more, so the archive format stays owned by `outlook-to-md` alone.
 
-**Tech Stack:** Bash + curl + jq (outlook-graph); Python 3.9+ stdlib + `unittest` (pst-to-markdown).
+**Tech Stack:** Bash + curl + jq (outlook-graph); Python 3.9+ stdlib + `unittest` (outlook-to-md).
 
 **Spec:** `docs/superpowers/specs/2026-07-29-graph-to-archive-design.md`
 
 ## Global Constraints
 
-- **Python floor is 3.9.** `parse_email_address` annotates `tuple[str, str]` at runtime with no `from __future__ import annotations` in `extract_pst.py`, so PEP 585 builtin generics must exist. CI runs 3.9, 3.11, 3.13.
+- **Python floor is 3.9.** `parse_email_address` annotates `tuple[str, str]` at runtime with no `from __future__ import annotations` in `outlook_to_md.py`, so PEP 585 builtin generics must exist. CI runs 3.9, 3.11, 3.13.
 - **Bash, not Python, for the outlook-graph side.** Every script in that skill is bash + curl + jq; do not introduce a new runtime.
 - **Never leave a Graph error body on disk named `.eml`.** Use `curl -sf` and delete the part-written file on failure, matching the attachment downloader at `outlook-graph-mail.sh:1930`.
 - **Test helpers must be top-level functions.** `helpers_test.sh` extracts functions by matching `^name() {` through the first line that is exactly `}` (`extract_fn`, line 31). Logic buried in a `case` branch cannot be tested offline.
@@ -42,7 +42,7 @@ Add to `skills/outlook-graph/tests/helpers_test.sh`, immediately before the fina
 ```bash
 ########################################
 # export helpers: staging filename + --since validation.
-# The filename only has to be unique and sortable - extract_pst.py derives the
+# The filename only has to be unique and sortable - outlook_to_md.py derives the
 # archive folder name from the message's own headers, not from this name.
 ########################################
 eval "$(extract_fn export_eml_filename)"
@@ -78,7 +78,7 @@ Insert into `skills/outlook-graph/scripts/outlook-graph-mail.sh` immediately bef
 
 ```bash
 # --- .eml export ------------------------------------------------------------
-# Staging filename for one exported message. extract_pst.py derives the archive
+# Staging filename for one exported message. outlook_to_md.py derives the archive
 # folder name from the message's own headers, so this name only has to be unique
 # and to sort chronologically in a directory listing. The short id is the same
 # 20-character slice the listing commands print, so an id copied off a listing
@@ -254,7 +254,7 @@ Insert into `skills/outlook-graph/scripts/outlook-graph-mail.sh` immediately aft
         out_dir="$3"
         if [ -z "$folder_name" ] || [ -z "$out_dir" ]; then
             echo "Usage: outlook-graph-mail.sh export <folder> <output-dir> [--since YYYY-MM-DD] [--count N]"
-            echo "       Writes each message as raw .eml for pst-to-markdown to append."
+            echo "       Writes each message as raw .eml for outlook-to-md to append."
             exit 1
         fi
         shift 3
@@ -316,7 +316,7 @@ Insert into `skills/outlook-graph/scripts/outlook-graph-mail.sh` immediately aft
         fi
         echo
         echo "Append to a markdown archive with:"
-        echo "  extract_pst.py $out_dir <archive-dir> --append"
+        echo "  outlook_to_md.py $out_dir <archive-dir> --append"
         ;;
 ```
 
@@ -354,8 +354,8 @@ git commit -m "feat(export): add the export verb writing folder mail as .eml"
 A directory input is currently only honoured when both libratom and readpst are absent, because the directory branch is nested inside `_extract_with_readpst`. With libratom installed — what `setup.sh` aims for — the directory is passed to `PffArchive` and raises `OSError: … Is a directory`.
 
 **Files:**
-- Modify: `skills/pst-to-markdown/scripts/extract_pst.py:257-260`
-- Test: `skills/pst-to-markdown/tests/test_extract_pst.py`
+- Modify: `skills/outlook-to-md/scripts/outlook_to_md.py:257-260`
+- Test: `skills/outlook-to-md/tests/test_outlook_to_md.py`
 
 **Interfaces:**
 - Consumes: `EmailExtractor.pst_path`, `EmailExtractor._process_eml_directory`, module-level `USE_LIBRATOM`
@@ -363,7 +363,7 @@ A directory input is currently only honoured when both libratom and readpst are 
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `skills/pst-to-markdown/tests/test_extract_pst.py`, after the `TestAppendModeIndexLoading` class:
+Add to `skills/outlook-to-md/tests/test_outlook_to_md.py`, after the `TestAppendModeIndexLoading` class:
 
 ```python
 class TestDirectoryDispatch(unittest.TestCase):
@@ -381,7 +381,7 @@ class TestDirectoryDispatch(unittest.TestCase):
             (staging / "a.eml").write_text("Subject: x\n\nbody\n")
             out = Path(tmp) / "out"
 
-            extractor = extract_pst.EmailExtractor(pst_path=staging, output_dir=out)
+            extractor = outlook_to_md.EmailExtractor(pst_path=staging, output_dir=out)
 
             called = {"dir": False, "libratom": False}
 
@@ -393,7 +393,7 @@ class TestDirectoryDispatch(unittest.TestCase):
 
             with patch.object(extractor, "_process_eml_directory", fake_dir), patch.object(
                 extractor, "_extract_with_libratom", fake_libratom
-            ), patch.object(extract_pst, "USE_LIBRATOM", True):
+            ), patch.object(outlook_to_md, "USE_LIBRATOM", True):
                 extractor.extract()
 
             self.assertTrue(called["dir"], "directory input did not reach directory mode")
@@ -402,12 +402,12 @@ class TestDirectoryDispatch(unittest.TestCase):
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cd skills/pst-to-markdown && ./.venv/bin/python -m pytest tests/test_extract_pst.py::TestDirectoryDispatch -v -p no:cacheprovider`
+Run: `cd skills/outlook-to-md && ./.venv/bin/python -m pytest tests/test_outlook_to_md.py::TestDirectoryDispatch -v -p no:cacheprovider`
 Expected: FAIL — `directory input was sent to libratom` (or an assertion that `called["dir"]` is False).
 
 - [ ] **Step 3: Write the implementation**
 
-In `skills/pst-to-markdown/scripts/extract_pst.py`, replace the dispatch inside `extract()`:
+In `skills/outlook-to-md/scripts/outlook_to_md.py`, replace the dispatch inside `extract()`:
 
 ```python
         if USE_LIBRATOM:
@@ -434,13 +434,13 @@ with:
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd skills/pst-to-markdown && ./.venv/bin/python -m pytest tests/ -v -p no:cacheprovider`
+Run: `cd skills/outlook-to-md && ./.venv/bin/python -m pytest tests/ -v -p no:cacheprovider`
 Expected: PASS — the new test plus the existing 47 passed, 1 skipped.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skills/pst-to-markdown/scripts/extract_pst.py skills/pst-to-markdown/tests/test_extract_pst.py
+git add skills/outlook-to-md/scripts/outlook_to_md.py skills/outlook-to-md/tests/test_outlook_to_md.py
 git commit -m "fix(pst): honour a directory input regardless of installed backend
 
 Directory mode was nested inside the readpst path, so it was reachable only
@@ -456,7 +456,7 @@ despite SKILL.md documenting directory input as first-class."
 Proves the property the whole design rests on: re-running over the same staging directory adds nothing.
 
 **Files:**
-- Test: `skills/pst-to-markdown/tests/test_extract_pst.py`
+- Test: `skills/outlook-to-md/tests/test_outlook_to_md.py`
 
 **Interfaces:**
 - Consumes: `EmailExtractor(pst_path=…, output_dir=…, append=…)`, `extract()`; the dispatch fix from Task 4
@@ -464,7 +464,7 @@ Proves the property the whole design rests on: re-running over the same staging 
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `skills/pst-to-markdown/tests/test_extract_pst.py`, after `TestDirectoryDispatch`:
+Add to `skills/outlook-to-md/tests/test_outlook_to_md.py`, after `TestDirectoryDispatch`:
 
 ```python
 class TestAppendRoundTrip(unittest.TestCase):
@@ -494,13 +494,13 @@ class TestAppendRoundTrip(unittest.TestCase):
             out = Path(tmp) / "out"
             source = Path(tmp) / "staging"
 
-            extract_pst.EmailExtractor(pst_path=source, output_dir=out).extract()
+            outlook_to_md.EmailExtractor(pst_path=source, output_dir=out).extract()
 
             first_rows = (out / "index.csv").read_text().splitlines()
             first_folders = sorted(p.parent.name for p in out.rglob("email.md"))
             self.assertEqual(len(first_folders), 1)
 
-            extract_pst.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
+            outlook_to_md.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
 
             second_rows = (out / "index.csv").read_text().splitlines()
             second_folders = sorted(p.parent.name for p in out.rglob("email.md"))
@@ -515,7 +515,7 @@ class TestAppendRoundTrip(unittest.TestCase):
             (staging / "msg.eml").write_text(self.EML)
             out = Path(tmp) / "out"
 
-            extract_pst.EmailExtractor(pst_path=Path(tmp) / "staging", output_dir=out).extract()
+            outlook_to_md.EmailExtractor(pst_path=Path(tmp) / "staging", output_dir=out).extract()
 
             found = list(out.rglob("email.md"))
             self.assertEqual(len(found), 1)
@@ -526,18 +526,18 @@ class TestAppendRoundTrip(unittest.TestCase):
 
 - [ ] **Step 2: Run the tests to verify they pass**
 
-These should pass once Task 4 is in. Run: `cd skills/pst-to-markdown && ./.venv/bin/python -m pytest tests/test_extract_pst.py::TestAppendRoundTrip -v -p no:cacheprovider`
+These should pass once Task 4 is in. Run: `cd skills/outlook-to-md && ./.venv/bin/python -m pytest tests/test_outlook_to_md.py::TestAppendRoundTrip -v -p no:cacheprovider`
 Expected: PASS. If `test_second_append_run_is_a_noop` fails, the dedupe is genuinely broken — stop and investigate rather than adjusting the test.
 
 - [ ] **Step 3: Run the whole suite**
 
-Run: `cd skills/pst-to-markdown && ./.venv/bin/python -m pytest tests/ -v -p no:cacheprovider`
+Run: `cd skills/outlook-to-md && ./.venv/bin/python -m pytest tests/ -v -p no:cacheprovider`
 Expected: PASS, no failures.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add skills/pst-to-markdown/tests/test_extract_pst.py
+git add skills/outlook-to-md/tests/test_outlook_to_md.py
 git commit -m "test(pst): pin append idempotence and staging-to-archive layout"
 ```
 
@@ -547,7 +547,7 @@ git commit -m "test(pst): pin append idempotence and staging-to-archive layout"
 
 **Files:**
 - Modify: `skills/outlook-graph/SKILL.md` (new section after "Attachments", before "Email Management")
-- Modify: `skills/pst-to-markdown/SKILL.md` (new section after "Incremental Extraction (Append Mode)")
+- Modify: `skills/outlook-to-md/SKILL.md` (new section after "Incremental Extraction (Append Mode)")
 - Modify: `README.md` (extend the "PST archives" section, around line 132)
 
 - [ ] **Step 1: Add the outlook-graph section**
@@ -557,7 +557,7 @@ In `skills/outlook-graph/SKILL.md`, after the "### Attachments" block:
 ````markdown
 ### Exporting Mail to a Markdown Archive
 
-Write a folder's messages out as raw `.eml`, then let `pst-to-markdown` append
+Write a folder's messages out as raw `.eml`, then let `outlook-to-md` append
 them to an archive. The PST backfills history; this keeps it current.
 
 ```bash
@@ -569,8 +569,8 @@ ${CLAUDE_SKILL_DIR}/scripts/outlook-graph-mail.sh export "Inbox/Clients" ./stagi
 
 # Then append into the archive - dedupes by Message-ID, so an overlapping
 # --since window is harmless
-${CLAUDE_SKILL_DIR}/../pst-to-markdown/.venv/bin/python \
-  ${CLAUDE_SKILL_DIR}/../pst-to-markdown/scripts/extract_pst.py \
+${CLAUDE_SKILL_DIR}/../outlook-to-md/.venv/bin/python \
+  ${CLAUDE_SKILL_DIR}/../outlook-to-md/scripts/outlook_to_md.py \
   ./staging/ ./archive/ --append
 ```
 
@@ -578,9 +578,9 @@ The staging directory's layout becomes the archive's folder grouping, so
 `export "Inbox/Clients"` lands under `emails/Inbox/Clients/`.
 ````
 
-- [ ] **Step 2: Add the pst-to-markdown section**
+- [ ] **Step 2: Add the outlook-to-md section**
 
-In `skills/pst-to-markdown/SKILL.md`, after the "### Incremental Extraction (Append Mode)" block:
+In `skills/outlook-to-md/SKILL.md`, after the "### Incremental Extraction (Append Mode)" block:
 
 ````markdown
 ### Keeping an Archive Current from Live Mail
@@ -594,7 +594,7 @@ ${CLAUDE_SKILL_DIR}/../outlook-graph/scripts/outlook-graph-mail.sh \
   export "Inbox/Clients" ./staging/ --since 2026-07-01
 
 # 2. Append it to the existing archive
-${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py \
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.py \
   ./staging/ ./archive/ --append
 ```
 
@@ -610,12 +610,12 @@ In `README.md`, after the paragraph ending "Nothing is uploaded and nothing is s
 
 ````markdown
 A PST is a snapshot, so the two skills join up to carry an archive forward:
-`outlook-graph` exports new mail as `.eml` and `pst-to-markdown` appends it in
+`outlook-graph` exports new mail as `.eml` and `outlook-to-md` appends it in
 the same shape, deduplicating by `Message-ID`.
 
 ```bash
 outlook-graph-mail.sh export "Inbox/Clients" ./staging/ --since 2026-07-01
-extract_pst.py ./staging/ ./archive/ --append
+outlook_to_md.py ./staging/ ./archive/ --append
 ```
 ````
 
@@ -625,7 +625,7 @@ The `validate` job checks each `SKILL.md`'s frontmatter and that its description
 
 Run: `bash -n skills/outlook-graph/scripts/outlook-graph-mail.sh && python3 -c "
 import re,sys
-for f in ['skills/outlook-graph/SKILL.md','skills/pst-to-markdown/SKILL.md']:
+for f in ['skills/outlook-graph/SKILL.md','skills/outlook-to-md/SKILL.md']:
     t=open(f).read()
     m=re.match(r'^---\n(.*?)\n---\n', t, re.S)
     assert m, f+': missing frontmatter'
@@ -638,7 +638,7 @@ Expected: both files print `OK`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skills/outlook-graph/SKILL.md skills/pst-to-markdown/SKILL.md README.md
+git add skills/outlook-graph/SKILL.md skills/outlook-to-md/SKILL.md README.md
 git commit -m "docs: document exporting live mail into a markdown archive"
 ```
 
@@ -659,7 +659,7 @@ find skills -name '*.py' -not -path '*/.venv/*' \
 echo "python parse ok"
 
 bash skills/outlook-graph/tests/helpers_test.sh
-(cd skills/pst-to-markdown && ./.venv/bin/python -m pytest tests/ -q -p no:cacheprovider)
+(cd skills/outlook-to-md && ./.venv/bin/python -m pytest tests/ -q -p no:cacheprovider)
 ```
 
 Expected: `fail=0`, `FAIL=0` from the bash suite, and no pytest failures.
@@ -670,11 +670,11 @@ Only if an Outlook account is configured. Pick a small folder:
 
 ```bash
 skills/outlook-graph/scripts/outlook-graph-mail.sh export "Inbox" /tmp/rt-staging --count 3
-skills/pst-to-markdown/.venv/bin/python skills/pst-to-markdown/scripts/extract_pst.py \
+skills/outlook-to-md/.venv/bin/python skills/outlook-to-md/scripts/outlook_to_md.py \
   /tmp/rt-staging /tmp/rt-archive --append
 find /tmp/rt-archive/emails -name email.md | head
 # second run must add nothing
-skills/pst-to-markdown/.venv/bin/python skills/pst-to-markdown/scripts/extract_pst.py \
+skills/outlook-to-md/.venv/bin/python skills/outlook-to-md/scripts/outlook_to_md.py \
   /tmp/rt-staging /tmp/rt-archive --append | grep -i skip
 sha256sum -c /tmp/rt-archive/manifest.sha256 | tail -3
 rm -rf /tmp/rt-staging /tmp/rt-archive
@@ -695,7 +695,7 @@ new mail into the identical archive shape.
 - `outlook-graph-mail.sh export <folder> <dir> [--since] [--count]` writes a
   folder's messages as raw `.eml` via Graph's `$value` MIME endpoint, paging
   through `@odata.nextLink`.
-- `extract_pst.py` now tests for a directory input *before* selecting a
+- `outlook_to_md.py` now tests for a directory input *before* selecting a
   backend. Directory mode was nested inside the readpst path, so it only worked
   when readpst was also absent - with libratom installed (what `setup.sh` aims
   for) a directory went to `PffArchive` and died with "Is a directory", despite
@@ -703,7 +703,7 @@ new mail into the identical archive shape.
 - Both `SKILL.md`s and the README document the two-step workflow.
 
 Staging stays plain `.eml`: `export` knows nothing about `email.md`, checksums
-or the index, so the archive format stays owned by `pst-to-markdown`.
+or the index, so the archive format stays owned by `outlook-to-md`.
 
 ## Verified
 

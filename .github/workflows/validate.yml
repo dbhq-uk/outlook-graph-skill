@@ -93,8 +93,8 @@ jobs:
           sys.exit(0 if ok else 1)
           PY
 
-  pst-to-markdown:
-    name: pst-to-markdown (py${{ matrix.python-version }})
+  outlook-to-md:
+    name: outlook-to-md (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -113,7 +113,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install test dependencies (requirements.txt minus libratom)
-        working-directory: skills/pst-to-markdown
+        working-directory: skills/outlook-to-md
         # Deliberately NOT the full requirements.txt. libratom pins
         # numpy==1.23.5, which has no wheel above cp311 and cannot build on
         # 3.12+ - installing it here would make this job unrunnable on current
@@ -131,11 +131,11 @@ jobs:
           python -m pip install -r /tmp/requirements-no-libratom.txt
 
       - name: Run test suite
-        working-directory: skills/pst-to-markdown
+        working-directory: skills/outlook-to-md
         run: python -m pytest tests/ -v -p no:cacheprovider
 
-  pst-to-markdown-install:
-    name: pst-to-markdown (full requirements, py3.11)
+  outlook-to-md-install:
+    name: outlook-to-md (full requirements, py3.11)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -150,7 +150,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install the full documented requirements
-        working-directory: skills/pst-to-markdown
+        working-directory: skills/outlook-to-md
         # setuptools and wheel go in first: libratom's transitive numpy==1.23.5
         # is an sdist here and needs a build backend present to configure.
         run: |
@@ -158,16 +158,16 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: libratom is importable, so the extraction path is real
-        working-directory: skills/pst-to-markdown
+        working-directory: skills/outlook-to-md
         run: |
           python -c "from libratom.lib.pff import PffArchive; print('libratom import OK')"
           python -c "
           import sys; sys.path.insert(0, 'scripts')
-          import extract_pst
-          assert extract_pst.USE_LIBRATOM, 'libratom installed but not detected'
-          print('extract_pst detects libratom')
+          import outlook_to_md
+          assert outlook_to_md.USE_LIBRATOM, 'libratom installed but not detected'
+          print('outlook_to_md detects libratom')
           "
 
       - name: Run the suite against the full dependency set
-        working-directory: skills/pst-to-markdown
+        working-directory: skills/outlook-to-md
         run: python -m pytest tests/ -v -p no:cacheprovider
