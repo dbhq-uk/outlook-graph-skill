@@ -45,6 +45,9 @@ eval "$(extract_fn from_to_json)"
 eval "$(extract_fn md_to_html)"
 eval "$(extract_cal_fn attendees_to_json)"
 eval "$(extract_cal_fn resolve_event_id)"
+eval "$(extract_fn category_colour_to_preset)"
+eval "$(extract_fn category_json)"
+eval "$(extract_fn resolve_category_id)"
 
 ########################################
 # recipients_to_json / attendees_to_json
@@ -330,6 +333,36 @@ eq "from_to_json omits name when unset" '{"emailAddress":{"address":"a@x.com"}}'
    "$(from_to_json 'a@x.com' '' | jq -c .)"
 eq "from_to_json includes name when given" '{"emailAddress":{"address":"a@x.com","name":"Dan G"}}' \
    "$(from_to_json 'a@x.com' 'Dan G' | jq -c .)"
+
+########################################
+# category_colour_to_preset: Graph stores colours as opaque presetN values.
+# Both a friendly name and a raw preset are accepted, because presetN means
+# nothing to a reader and a name cannot reach a preset Microsoft adds later.
+########################################
+eq "colour name maps to preset" "preset0" "$(category_colour_to_preset red)"
+eq "colour name is case-insensitive" "preset0" "$(category_colour_to_preset RED)"
+eq "colour name ignores spaces" "preset22" "$(category_colour_to_preset 'dark blue')"
+eq "colour grey spelling" "preset12" "$(category_colour_to_preset grey)"
+eq "colour gray spelling" "preset12" "$(category_colour_to_preset gray)"
+eq "raw preset passes through" "preset7" "$(category_colour_to_preset preset7)"
+eq "out-of-range preset rejected" "1" "$(category_colour_to_preset preset25 >/dev/null; echo $?)"
+eq "unknown colour rejected" "1" "$(category_colour_to_preset mauve >/dev/null; echo $?)"
+
+########################################
+# category_json / resolve_category_id: Graph addresses a master category by
+# GUID, so a display name must be resolved first. The match is exact and
+# case-insensitive, deliberately NOT a substring match: renaming or deleting
+# the wrong category on a fuzzy match cannot be undone. The fixture's second
+# entry contains the first one's name, so a substring implementation fails here.
+########################################
+mock_cats() {
+    api_call() { echo '{"value":[{"id":"C1","displayName":"Follow up","color":"preset0"},{"id":"C2","displayName":"Follow up later","color":"preset4"}]}'; }
+}
+eq "resolve category by exact name" "C1" "$(mock_cats; resolve_category_id 'Follow up')"
+eq "resolve category is case-insensitive" "C1" "$(mock_cats; resolve_category_id 'FOLLOW UP')"
+eq "resolve category does not substring match" "" "$(mock_cats; resolve_category_id 'Follow')"
+eq "resolve category absent is empty" "" "$(mock_cats; resolve_category_id 'Nope')"
+eq "category_json carries the colour" "preset4" "$(mock_cats; category_json 'Follow up later' | jq -r '.color')"
 
 rm -f "$body_file" /tmp/outlook_test_last_url /tmp/outlook_test_calls
 echo "-----------------------------"

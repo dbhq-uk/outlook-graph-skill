@@ -405,6 +405,65 @@ resolve_message_id() {
     return 1
 }
 
+# Valid friendly colour names, listed in error output so a caller who guesses
+# wrong is told what to guess instead.
+CATEGORY_COLOUR_NAMES="red orange brown yellow green teal olive blue purple cranberry steel darksteel grey darkgrey black darkred darkorange darkbrown darkyellow darkgreen darkteal darkolive darkblue darkpurple darkcranberry"
+
+# Map a friendly colour name to the presetN value Graph stores. A raw presetN
+# passes straight through, so a preset Microsoft adds later is still reachable
+# without a code change. Spaces are ignored, so "dark blue" works as well as
+# "darkblue". Returns 1 and prints nothing when the value is not recognised.
+category_colour_to_preset() {
+    local v
+    v=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+    case "$v" in
+        preset[0-9]|preset1[0-9]|preset2[0-4]) printf '%s' "$v"; return 0 ;;
+        red)           printf 'preset0' ;;
+        orange)        printf 'preset1' ;;
+        brown)         printf 'preset2' ;;
+        yellow)        printf 'preset3' ;;
+        green)         printf 'preset4' ;;
+        teal)          printf 'preset5' ;;
+        olive)         printf 'preset6' ;;
+        blue)          printf 'preset7' ;;
+        purple)        printf 'preset8' ;;
+        cranberry)     printf 'preset9' ;;
+        steel)         printf 'preset10' ;;
+        darksteel)     printf 'preset11' ;;
+        grey|gray)     printf 'preset12' ;;
+        darkgrey|darkgray) printf 'preset13' ;;
+        black)         printf 'preset14' ;;
+        darkred)       printf 'preset15' ;;
+        darkorange)    printf 'preset16' ;;
+        darkbrown)     printf 'preset17' ;;
+        darkyellow)    printf 'preset18' ;;
+        darkgreen)     printf 'preset19' ;;
+        darkteal)      printf 'preset20' ;;
+        darkolive)     printf 'preset21' ;;
+        darkblue)      printf 'preset22' ;;
+        darkpurple)    printf 'preset23' ;;
+        darkcranberry) printf 'preset24' ;;
+        *) return 1 ;;
+    esac
+    return 0
+}
+
+# The master-category object whose display name matches, case-insensitively and
+# exactly. Prints nothing when there is no such category. Exact rather than
+# substring on purpose: a fuzzy match that deletes the wrong category is not
+# recoverable.
+category_json() {
+    local lc
+    lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    api_call GET "/me/outlook/masterCategories" \
+        | jq -c --arg lc "$lc" 'first(.value[] | select((.displayName | ascii_downcase) == $lc)) // empty'
+}
+
+# The id of a master category, by display name. Empty when absent.
+resolve_category_id() {
+    category_json "$1" | jq -r '.id // empty'
+}
+
 # Convert a comma/semicolon-separated address string into a JSON array of
 # Graph recipient objects. Trims surrounding whitespace and drops empties.
 # Usage: arr=$(recipients_to_json "a@x.com, b@y.com; c@z.com")
