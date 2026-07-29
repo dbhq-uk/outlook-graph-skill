@@ -322,7 +322,7 @@ Insert into `skills/outlook-graph/scripts/outlook-graph-mail.sh` immediately aft
 
 - [ ] **Step 2: Add the help line**
 
-In the `*)` usage block, add to the "Attachments" section's neighbour — put it at the end of the "Reading:" group, after the `preview <id>` line (around line 2103):
+In the `*)` usage block, add this line at the end of the "Reading:" group — directly after the `preview <id>              Quick preview` line (around line 2103) and before the blank `echo` that precedes "Sending:":
 
 ```bash
         echo "  export <folder> <dir>      Write folder's messages as .eml for archiving"
