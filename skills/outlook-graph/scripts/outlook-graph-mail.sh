@@ -464,6 +464,21 @@ resolve_category_id() {
     category_json "$1" | jq -r '.id // empty'
 }
 
+# Add one category to a message's category array, read from stdin. Order is
+# preserved and a category already present is not duplicated, compared
+# case-insensitively because Outlook treats category names that way.
+categories_add() {
+    jq -c --arg n "$1" \
+        'if any(.[]; ascii_downcase == ($n | ascii_downcase)) then . else . + [$n] end'
+}
+
+# Remove one category from a message's category array, read from stdin.
+# Everything else is left exactly as it was; removing an absent category is a
+# no-op rather than an error.
+categories_remove() {
+    jq -c --arg n "$1" 'map(select(ascii_downcase != ($n | ascii_downcase)))'
+}
+
 # Convert a comma/semicolon-separated address string into a JSON array of
 # Graph recipient objects. Trims surrounding whitespace and drops empties.
 # Usage: arr=$(recipients_to_json "a@x.com, b@y.com; c@z.com")
@@ -1469,19 +1484,43 @@ ${existing_body}"
 
     categorize)
         msg_id="$2"
-        cats="$3"
         if [ -z "$msg_id" ]; then
             echo "Usage: outlook-graph-mail.sh categorize <message-id> <categories>"
             echo "       <categories> is comma-separated (must match names from"
             echo "       'categories'); an empty string clears all categories."
+            echo "       categorize <message-id> --add <category>     add one, keep the rest"
+            echo "       categorize <message-id> --remove <category>  remove one, keep the rest"
             exit 1
         fi
         if ! msg_id=$(resolve_message_id "$msg_id" "messages"); then
             echo "Error: Message not found with ID: $2"
             exit 1
         fi
-        payload=$(jq -n --arg raw "$cats" \
-            '{categories: ($raw | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)))}')
+        case "$3" in
+            --add|--remove)
+                one="$4"
+                if [ -z "$one" ]; then
+                    echo "Usage: outlook-graph-mail.sh categorize <message-id> $3 <category>"
+                    exit 1
+                fi
+                current=$(api_call GET "/me/messages/$msg_id?\$select=categories" | jq -c '.categories // []')
+                if [ "$3" = "--add" ]; then
+                    updated=$(printf '%s' "$current" | categories_add "$one")
+                    if [ -z "$(resolve_category_id "$one")" ]; then
+                        echo "Note: '$one' is not in the master list, so it will show without a colour."
+                        echo "      Create it with: outlook-graph-mail.sh mkcategory \"$one\" <colour>"
+                    fi
+                else
+                    updated=$(printf '%s' "$current" | categories_remove "$one")
+                fi
+                payload=$(jq -n --argjson c "$updated" '{categories: $c}')
+                ;;
+            *)
+                cats="$3"
+                payload=$(jq -n --arg raw "$cats" \
+                    '{categories: ($raw | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)))}')
+                ;;
+        esac
         result=$(api_call PATCH "/me/messages/$msg_id" "$payload")
         if echo "$result" | jq -e '.error' > /dev/null 2>&1; then
             echo "Error setting categories:"

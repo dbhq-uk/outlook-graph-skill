@@ -48,6 +48,8 @@ eval "$(extract_cal_fn resolve_event_id)"
 eval "$(extract_fn category_colour_to_preset)"
 eval "$(extract_fn category_json)"
 eval "$(extract_fn resolve_category_id)"
+eval "$(extract_fn categories_add)"
+eval "$(extract_fn categories_remove)"
 
 ########################################
 # recipients_to_json / attendees_to_json
@@ -365,6 +367,27 @@ eq "resolve category absent is empty" "" "$(mock_cats; resolve_category_id 'Nope
 eq "category_json carries the colour" "preset4" "$(mock_cats; category_json 'Follow up later' | jq -r '.color')"
 eq "category_json on API error exits cleanly" "0" \
    "$(api_call() { echo '{"error":{"code":"NetworkError","message":"boom"}}'; }; category_json 'Follow up' >/dev/null 2>&1; echo $?)"
+
+########################################
+# categories_add / categories_remove: `categorize` replaces the message's whole
+# category list, so adding one label meant every caller had to read-modify-write
+# by hand. These do it once, correctly: order is preserved, nothing the caller
+# did not name is touched, and both are no-ops when there is nothing to do.
+########################################
+eq "add to empty list" '["Follow up"]' \
+   "$(echo '[]' | categories_add 'Follow up')"
+eq "add preserves existing and order" '["Invoices","Project X","Follow up"]' \
+   "$(echo '["Invoices","Project X"]' | categories_add 'Follow up')"
+eq "add of a present category does not duplicate" '["Invoices","Follow up"]' \
+   "$(echo '["Invoices","Follow up"]' | categories_add 'Follow up')"
+eq "add is case-insensitive about duplicates" '["Follow up"]' \
+   "$(echo '["Follow up"]' | categories_add 'FOLLOW UP')"
+eq "remove takes only the named one" '["Invoices","Project X"]' \
+   "$(echo '["Invoices","Follow up","Project X"]' | categories_remove 'Follow up')"
+eq "remove is case-insensitive" '["Invoices"]' \
+   "$(echo '["Invoices","Follow up"]' | categories_remove 'FOLLOW UP')"
+eq "remove of an absent category is a no-op" '["Invoices"]' \
+   "$(echo '["Invoices"]' | categories_remove 'Nope')"
 
 rm -f "$body_file" /tmp/outlook_test_last_url /tmp/outlook_test_calls
 echo "-----------------------------"
