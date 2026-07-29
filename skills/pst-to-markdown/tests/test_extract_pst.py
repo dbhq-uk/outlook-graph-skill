@@ -409,6 +409,63 @@ class TestDirectoryDispatch(unittest.TestCase):
             self.assertFalse(called["libratom"], "directory input was sent to libratom")
 
 
+class TestAppendRoundTrip(unittest.TestCase):
+    """Second run over the same staging directory must add nothing.
+
+    This is the property the outlook-graph -> archive workflow relies on: a
+    --since window that overlaps what is already archived costs bandwidth and
+    nothing else, because Message-ID dedupe absorbs the overlap.
+    """
+
+    EML = (
+        "Message-ID: <roundtrip@example.com>\n"
+        "Date: Tue, 29 Jul 2026 10:12:00 +0000\n"
+        "From: Alice <alice@example.com>\n"
+        "To: Bob <bob@example.com>\n"
+        "Subject: Hello there\n"
+        "Content-Type: text/plain; charset=utf-8\n"
+        "\n"
+        "Body text here.\n"
+    )
+
+    def test_second_append_run_is_a_noop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            staging = Path(tmp) / "staging" / "Inbox"
+            staging.mkdir(parents=True)
+            (staging / "20260729_101200_abc.eml").write_text(self.EML)
+            out = Path(tmp) / "out"
+            source = Path(tmp) / "staging"
+
+            extract_pst.EmailExtractor(pst_path=source, output_dir=out).extract()
+
+            first_rows = (out / "index.csv").read_text().splitlines()
+            first_folders = sorted(p.parent.name for p in out.rglob("email.md"))
+            self.assertEqual(len(first_folders), 1)
+
+            extract_pst.EmailExtractor(pst_path=source, output_dir=out, append=True).extract()
+
+            second_rows = (out / "index.csv").read_text().splitlines()
+            second_folders = sorted(p.parent.name for p in out.rglob("email.md"))
+
+            self.assertEqual(len(first_rows), len(second_rows), "append added an index row")
+            self.assertEqual(first_folders, second_folders, "append added an email folder")
+
+    def test_staging_layout_becomes_archive_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            staging = Path(tmp) / "staging" / "Inbox" / "Clients"
+            staging.mkdir(parents=True)
+            (staging / "msg.eml").write_text(self.EML)
+            out = Path(tmp) / "out"
+
+            extract_pst.EmailExtractor(pst_path=Path(tmp) / "staging", output_dir=out).extract()
+
+            found = list(out.rglob("email.md"))
+            self.assertEqual(len(found), 1)
+            # staging/Inbox/Clients/*.eml -> emails/Inbox/Clients/<folder>/email.md
+            self.assertEqual(found[0].parent.parent.name, "Clients")
+            self.assertEqual(found[0].parent.parent.parent.name, "Inbox")
+
+
 class TestModuleContract(unittest.TestCase):
     """Guards against the optional-dependency wiring being removed."""
 
