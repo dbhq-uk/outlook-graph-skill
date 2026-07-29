@@ -405,11 +405,12 @@ eq "remove of an absent category is a no-op" '["Invoices"]' \
 
 ########################################
 # CLI-level integration: run the real script as a subprocess, so the
-# `categorize` dispatcher's flag handling is proven end-to-end - not just at
-# the unit level, where the dispatcher's `case "$3" in ... esac` is not an
-# extractable function. A throwaway HOME provides a valid, non-expired token
-# (so no network call is needed to refresh it), and `curl` is shadowed with a
-# bash function - exported so the child `bash "$MAIL"` process inherits it in
+# `categorize` dispatcher's flag handling and every call site that reads the
+# master category list are proven end-to-end - not just at the unit level,
+# where the dispatcher's `case "$3" in ... esac` is not an extractable
+# function. A throwaway HOME provides a valid, non-expired token (so no
+# network call is needed to refresh it), and `curl` is shadowed with a bash
+# function - exported so the child `bash "$MAIL"` process inherits it in
 # place of the real binary - that logs every request and answers from small
 # fixture files a test can swap between "ok" and "API error".
 ########################################
@@ -603,6 +604,23 @@ else
 fi
 eq "categorize --add still PATCHes the message despite the check failing" "1" \
     "$(grep -c "PATCH .*/me/messages/$CLI_MSG_ID\$" "$CLI_LOG")"
+
+########################################
+# Finding 3: mkcategory/rccategory must report what Graph actually returned,
+# not the value the caller asked for - Graph can answer 200 with the colour
+# unchanged, and a report that echoes the request is a false success.
+########################################
+printf '%s' '{"value":[]}' > "$CLI_MASTERCATS"
+printf '%s' '{"id":"NEWCAT","displayName":"Follow Up","color":"preset3"}' > "$CLI_MASTERCATS_POST"
+run_and_capture mkcategory "Follow up" red
+eq "mkcategory reports the server's displayName/color, not the request" \
+    "Category created: Follow Up (preset3)" "$CLI_OUT"
+
+printf '%s' '{"value":[{"id":"CAT1","displayName":"Follow up","color":"preset0"}]}' > "$CLI_MASTERCATS"
+printf '%s' '{"id":"CAT1","displayName":"Follow up","color":"preset0"}' > "$CLI_MASTERCATS_PATCH"
+run_and_capture rccategory "Follow up" darkblue
+eq "rccategory reports the server's actual colour, not the requested one" \
+    "Category recoloured: Follow up (preset0)" "$CLI_OUT"
 
 unset -f curl
 rm -rf "$CLI_TMP"

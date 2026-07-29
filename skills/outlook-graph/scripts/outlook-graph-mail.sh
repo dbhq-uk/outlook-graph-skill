@@ -1622,11 +1622,7 @@ ${existing_body}"
         fi
         result=$(api_call POST "/me/outlook/masterCategories" "$payload")
         die_on_error "$result" "creating category"
-        if [ -n "$preset" ]; then
-            echo "Category created: $cat_name ($preset)"
-        else
-            echo "Category created: $cat_name (no colour)"
-        fi
+        echo "$result" | jq -r '"Category created: \(.displayName) (\(.color // "no colour"))"'
         ;;
 
     rccategory)
@@ -1658,7 +1654,7 @@ ${existing_body}"
         result=$(api_call PATCH "/me/outlook/masterCategories/$cat_id" \
             "$(jq -n --arg c "$preset" '{color: $c}')")
         die_on_error "$result" "recolouring category"
-        echo "Category recoloured: $cat_name ($preset)"
+        echo "$result" | jq -r '"Category recoloured: \(.displayName) (\(.color // "no colour"))"'
         ;;
 
     rmcategory)
