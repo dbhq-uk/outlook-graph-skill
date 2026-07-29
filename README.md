@@ -99,8 +99,8 @@ You normally just talk to the skill in plain language, but every command is also
 | Read | `inbox` · `unread` · `focused` · `sent` · `drafts` · `flagged` · `folder <name>` · `from <email>` · `search <query>` · `thread <id>` · `read <id>` · `preview <id>` |
 | Write | `draft` · `mddraft` · `reply` · `mdreply` · `forward <id> <to> [comment]` · `followup <sent-id>` · `update <draft> subject\|body\|mdbody\|to\|cc\|bcc\|importance` · `send <draft>` |
 | Attachments | `attachments <id>` · `download <id> [att-id]` · `attach <draft> <file>` (up to 150 MB) |
-| Triage | `markread` · `markunread` · `flag` · `unflag` · `categorize <id> <cats>` · `categories` · `junk` · `notjunk` · `archive` · `delete` |
-| Organise | `move <id> <folder>` · `batch-move <folder> <ids…>` · `mkdir` · `rename` · `rmdir [--force]` · `folders` · `subfolders` · `stats` |
+| Triage | `markread` · `markunread` · `flag` · `unflag` · `categorize <id> <cats>` · `categorize <id> --add/--remove <cat>` · `categories` · `junk` · `notjunk` · `archive` · `delete` |
+| Organise | `move <id> <folder>` · `batch-move <folder> <ids…>` · `mkdir` · `rename` · `rmdir [--force]` · `mkcategory` · `rccategory` · `rmcategory` · `folders` · `subfolders` · `stats` |
 
 `outlook-graph-calendar.sh`:
 
