@@ -453,15 +453,36 @@ category_colour_to_preset() {
 # substring on purpose: a fuzzy match that deletes the wrong category is not
 # recoverable.
 category_json() {
-    local lc
+    local lc resp
     lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-    api_call GET "/me/outlook/masterCategories" \
-        | jq -c --arg lc "$lc" 'first((.value // [])[] | select((.displayName | ascii_downcase) == $lc)) // empty'
+    resp=$(api_call GET "/me/outlook/masterCategories")
+    if printf '%s' "$resp" | jq -e '.error' > /dev/null 2>&1; then
+        # Fail closed: an unreadable master list must never look like "no such
+        # category" to a caller. That confusion is what let mkcategory issue a
+        # duplicate create, and made rccategory/rmcategory print a
+        # self-contradictory "not found - run categories to check" for the
+        # very list that just failed to read. Print the error object and
+        # return non-zero so every caller can tell "unreadable" apart from
+        # "absent" (empty output, exit 0).
+        printf '%s' "$resp"
+        return 1
+    fi
+    printf '%s' "$resp" | jq -c --arg lc "$lc" 'first((.value // [])[] | select((.displayName | ascii_downcase) == $lc)) // empty'
 }
 
 # The id of a master category, by display name. Empty when absent.
 resolve_category_id() {
-    category_json "$1" | jq -r '.id // empty'
+    local json rc
+    # Piping category_json straight into jq (the old implementation) loses the
+    # error signal: jq succeeds on empty/error input either way, so the
+    # pipeline's exit status was always jq's, never category_json's. Capture
+    # output and exit code separately so a Graph error propagates here too.
+    json=$(category_json "$1") && rc=0 || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        printf '%s' "$json"
+        return 1
+    fi
+    printf '%s' "$json" | jq -r '.id // empty'
 }
 
 # Add one category to a message's category array, read from stdin. Order is
@@ -1517,7 +1538,16 @@ ${existing_body}"
                 current=$(printf '%s' "$current_raw" | jq -c '.categories // []')
                 if [ "$3" = "--add" ]; then
                     updated=$(printf '%s' "$current" | categories_add "$one")
-                    if [ -z "$(resolve_category_id "$one")" ]; then
+                    cat_id_check=$(resolve_category_id "$one") && cat_rc=0 || cat_rc=$?
+                    if [ "$cat_rc" -ne 0 ]; then
+                        # The master-list check is advisory only for --add: whether
+                        # the category is coloured is separate from whether it can
+                        # be applied to this message, so a failed check must not
+                        # block the write and must not be misreported as "not in
+                        # the master list" (we simply don't know).
+                        echo "Warning: could not check '$one' against the master category list:" >&2
+                        printf '%s' "$cat_id_check" | jq -r '.error.message // .error.code' >&2
+                    elif [ -z "$cat_id_check" ]; then
                         echo "Note: '$one' is not in the master list, so it will show without a colour."
                         echo "      Create it with: outlook-graph-mail.sh mkcategory \"$one\" <colour>"
                     fi
@@ -1571,7 +1601,12 @@ ${existing_body}"
                 exit 1
             fi
         fi
-        existing=$(category_json "$cat_name")
+        existing=$(category_json "$cat_name") && cat_rc=0 || cat_rc=$?
+        if [ "$cat_rc" -ne 0 ]; then
+            echo "Error: could not read the master category list, so not creating '$cat_name'." >&2
+            printf '%s' "$existing" | jq -r '.error.message // .error.code' >&2
+            exit 1
+        fi
         if [ -n "$existing" ]; then
             existing_colour=$(printf '%s' "$existing" | jq -r '.color // "no colour"')
             echo "Category already exists: $cat_name ($existing_colour)"
@@ -1609,7 +1644,12 @@ ${existing_body}"
             echo "Or a raw preset0 to preset24 value." >&2
             exit 1
         fi
-        cat_id=$(resolve_category_id "$cat_name")
+        cat_id=$(resolve_category_id "$cat_name") && cat_rc=0 || cat_rc=$?
+        if [ "$cat_rc" -ne 0 ]; then
+            echo "Error: could not read the master category list, so not recolouring '$cat_name'." >&2
+            printf '%s' "$cat_id" | jq -r '.error.message // .error.code' >&2
+            exit 1
+        fi
         if [ -z "$cat_id" ]; then
             echo "Error: no category named '$cat_name'" >&2
             echo "Run 'categories' to see the master list." >&2
@@ -1627,7 +1667,12 @@ ${existing_body}"
             echo "Usage: outlook-graph-mail.sh rmcategory <name>"
             exit 1
         fi
-        cat_id=$(resolve_category_id "$cat_name")
+        cat_id=$(resolve_category_id "$cat_name") && cat_rc=0 || cat_rc=$?
+        if [ "$cat_rc" -ne 0 ]; then
+            echo "Error: could not read the master category list, so not deleting '$cat_name'." >&2
+            printf '%s' "$cat_id" | jq -r '.error.message // .error.code' >&2
+            exit 1
+        fi
         if [ -z "$cat_id" ]; then
             echo "Error: no category named '$cat_name'" >&2
             echo "Run 'categories' to see the master list." >&2

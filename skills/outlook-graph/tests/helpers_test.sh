@@ -365,8 +365,22 @@ eq "resolve category is case-insensitive" "C1" "$(mock_cats; resolve_category_id
 eq "resolve category does not substring match" "" "$(mock_cats; resolve_category_id 'Follow')"
 eq "resolve category absent is empty" "" "$(mock_cats; resolve_category_id 'Nope')"
 eq "category_json carries the colour" "preset4" "$(mock_cats; category_json 'Follow up later' | jq -r '.color')"
-eq "category_json on API error exits cleanly" "0" \
-   "$(api_call() { echo '{"error":{"code":"NetworkError","message":"boom"}}'; }; category_json 'Follow up' >/dev/null 2>&1; echo $?)"
+
+# category_json / resolve_category_id on an unreadable master list must fail
+# CLOSED: a non-zero exit and the error body on stdout, never the same empty
+# "not found" shape a genuinely absent category produces. (This replaces an
+# earlier "exits cleanly" / exit-0 assertion: that pinned the crash-guard fix's
+# shape at the time, not the requirement - an API error reported as success is
+# exactly the bug this pins against now.)
+mock_cat_error() { api_call() { echo '{"error":{"code":"NetworkError","message":"boom"}}'; }; }
+eq "category_json on API error exits non-zero" "1" \
+   "$(mock_cat_error; category_json 'Follow up' >/dev/null 2>&1; echo $?)"
+eq "category_json on API error prints the error body, not empty" "NetworkError" \
+   "$(mock_cat_error; category_json 'Follow up' 2>/dev/null | jq -r '.error.code')"
+eq "resolve_category_id on API error exits non-zero" "1" \
+   "$(mock_cat_error; resolve_category_id 'Follow up' >/dev/null 2>&1; echo $?)"
+eq "resolve_category_id on API error carries the error body, not an empty id" "NetworkError" \
+   "$(mock_cat_error; resolve_category_id 'Follow up' 2>/dev/null | jq -r '.error.code')"
 
 ########################################
 # categories_add / categories_remove: `categorize` replaces the message's whole
@@ -522,6 +536,73 @@ eq "categorize plain replace sets the given categories" "Categories set: A, B" "
 run_and_capture categorize "$CLI_MSG_ID" ""
 eq "categorize empty string still clears" "0" "$CLI_RC"
 eq "categorize empty string clears output" "Categories cleared" "$CLI_OUT"
+
+########################################
+# Finding 2: an API error reading the master category list must never look
+# like "no such category" (mkcategory/rccategory/rmcategory), and must never
+# be reported as a false "not in the master list" (categorize --add). Proven
+# here at all four call sites under a mocked transient failure of the
+# masterCategories GET, matching how the reviewer verified the bug.
+########################################
+printf '%s' '{"error":{"code":"NetworkError","message":"boom"}}' > "$CLI_MASTERCATS"
+
+: > "$CLI_LOG"
+run_and_capture mkcategory "Follow up" red
+eq "mkcategory on unreadable master list fails closed (non-zero)" "1" "$CLI_RC"
+if contains "$CLI_ERR" "could not read the master category list"; then
+    eq "mkcategory reports the read failure clearly" ok ok
+else
+    eq "mkcategory reports the read failure clearly" "mentions could not read the master category list" "$CLI_ERR"
+fi
+eq "mkcategory does not claim success on read failure" "0" \
+    "$(contains "$CLI_OUT$CLI_ERR" "Category created" && echo 1 || echo 0)"
+eq "mkcategory issues no create POST when the list is unreadable" "0" \
+    "$(grep -c 'POST .*masterCategories$' "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture rccategory "Follow up" red
+eq "rccategory on unreadable master list fails closed (non-zero)" "1" "$CLI_RC"
+eq "rccategory does NOT misreport an unreadable list as 'no category named'" "0" \
+    "$(contains "$CLI_ERR" "no category named" && echo 1 || echo 0)"
+if contains "$CLI_ERR" "could not read the master category list"; then
+    eq "rccategory reports the read failure clearly" ok ok
+else
+    eq "rccategory reports the read failure clearly" "mentions could not read the master category list" "$CLI_ERR"
+fi
+eq "rccategory issues no PATCH when the list is unreadable" "0" \
+    "$(grep -c 'PATCH .*masterCategories/' "$CLI_LOG")"
+
+: > "$CLI_LOG"
+run_and_capture rmcategory "Follow up"
+eq "rmcategory on unreadable master list fails closed (non-zero)" "1" "$CLI_RC"
+eq "rmcategory does NOT misreport an unreadable list as 'no category named'" "0" \
+    "$(contains "$CLI_ERR" "no category named" && echo 1 || echo 0)"
+if contains "$CLI_ERR" "could not read the master category list"; then
+    eq "rmcategory reports the read failure clearly" ok ok
+else
+    eq "rmcategory reports the read failure clearly" "mentions could not read the master category list" "$CLI_ERR"
+fi
+eq "rmcategory issues no DELETE when the list is unreadable" "0" \
+    "$(grep -c 'DELETE .*masterCategories/' "$CLI_LOG")"
+
+# categorize --add: the master-list check is advisory only, so a failed check
+# must NOT block the message-level write, and must NOT be misreported as "not
+# in the master list" (we simply don't know).
+printf '%s' '{"categories":["Old"]}' > "$CLI_CURRENTCATS"
+: > "$CLI_LOG"
+run_and_capture categorize "$CLI_MSG_ID" --add "Follow up"
+eq "categorize --add still succeeds when the master-list check fails" "0" "$CLI_RC"
+eq "categorize --add still applies the category despite the check failing" \
+    "Categories set: Old, Follow up" "$CLI_OUT"
+eq "categorize --add does NOT falsely claim 'not in the master list'" "0" \
+    "$(contains "$CLI_ERR" "is not in the master list" && echo 1 || echo 0)"
+if contains "$CLI_ERR" "could not check"; then
+    eq "categorize --add surfaces the check failure as a warning" ok ok
+else
+    eq "categorize --add surfaces the check failure as a warning" "mentions could not check" "$CLI_ERR"
+fi
+eq "categorize --add still PATCHes the message despite the check failing" "1" \
+    "$(grep -c "PATCH .*/me/messages/$CLI_MSG_ID\$" "$CLI_LOG")"
 
 unset -f curl
 rm -rf "$CLI_TMP"
