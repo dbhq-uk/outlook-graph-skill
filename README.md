@@ -131,6 +131,15 @@ sha256sum -c manifest.sha256
 
 That chain of custody is the point: it is built for archives someone will later ask you to stand behind. `--append` re-runs incrementally by Message-ID, and extraction falls back from `libratom` to `readpst` to a directory of pre-extracted `.eml` files. Nothing is uploaded and nothing is sent.
 
+A PST is a snapshot, so the two skills join up to carry an archive forward:
+`outlook-graph` exports new mail as `.eml` and `pst-to-markdown` appends it in
+the same shape, deduplicating by `Message-ID`.
+
+```bash
+outlook-graph-mail.sh export "Inbox/Clients" ./staging/ --since 2026-07-01
+extract_pst.py ./staging/ ./archive/ --append
+```
+
 | Flag | Purpose |
 |---|---|
 | `--append` | Add only emails not already extracted (matched on Message-ID) |

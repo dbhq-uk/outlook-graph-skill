@@ -62,6 +62,26 @@ Add only new emails (skips already-extracted messages by Message-ID):
 ${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py /path/to/file.pst /path/to/output/ --append --verbose
 ```
 
+### Keeping an Archive Current from Live Mail
+
+A PST is a snapshot. To carry an archive forward, export new mail with the
+sibling `outlook-graph` skill and append it — the two produce the same shape.
+
+```bash
+# 1. Export live mail as .eml (needs outlook-graph configured)
+${CLAUDE_SKILL_DIR}/../outlook-graph/scripts/outlook-graph-mail.sh \
+  export "Inbox/Clients" ./staging/ --since 2026-07-01
+
+# 2. Append it to the existing archive
+${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/extract_pst.py \
+  ./staging/ ./archive/ --append
+```
+
+Deduplication is by `Message-ID`, so a `--since` window that overlaps what is
+already archived costs bandwidth and nothing else. Graph-sourced mail is
+recorded under the `pst_folder` index column like any other — the column means
+"the folder this message came from", and always did.
+
 ### Extract from Pre-Extracted .eml Directory
 
 If emails were already extracted with readpst elsewhere, point at the directory:
