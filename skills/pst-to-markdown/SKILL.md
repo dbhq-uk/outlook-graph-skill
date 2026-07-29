@@ -146,11 +146,12 @@ extract_pst.py [-h] [--include-deleted] [--timezone TZ] [--verbose] [--append] [
 
 ## Extraction Backends
 
-The tool tries backends in priority order:
+A directory input (pre-extracted `.eml` files) is always handled directly,
+checked before any backend regardless of what is installed. A PST file falls
+back in this order:
 
 1. **libratom** (Python) - preferred, installed via requirements.txt
 2. **readpst** (system CLI) - fallback, from pst-utils package
-3. **Directory mode** - processes pre-extracted .eml files directly
 
 ## Integrity Verification
 
