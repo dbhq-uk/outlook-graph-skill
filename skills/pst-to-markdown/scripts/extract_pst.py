@@ -255,7 +255,14 @@ class EmailExtractor:
             print("Mode: OVERWRITE (replacing existing emails)")
         print()
 
-        if USE_LIBRATOM:
+        # Test the input before the backend. A directory of .eml is a documented
+        # first-class input, but this branch used to live inside the readpst
+        # path, so it was only reachable when readpst was ALSO missing - and a
+        # directory handed to libratom raises "OSError: ... Is a directory".
+        if self.pst_path.is_dir():
+            print(f"Processing pre-extracted emails from: {self.pst_path}")
+            self._process_eml_directory(self.pst_path)
+        elif USE_LIBRATOM:
             self._extract_with_libratom()
         else:
             self._extract_with_readpst()

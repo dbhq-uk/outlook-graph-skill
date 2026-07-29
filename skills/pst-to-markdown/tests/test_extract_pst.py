@@ -375,6 +375,40 @@ class TestAppendModeIndexLoading(unittest.TestCase):
         self.assertEqual(ex.index_data, [])
 
 
+class TestDirectoryDispatch(unittest.TestCase):
+    """A directory input must reach directory mode whatever backends exist.
+
+    The directory branch used to sit inside the readpst path, reachable only
+    when readpst was ALSO missing - so with libratom installed (what setup.sh
+    aims for) a directory was handed to PffArchive and raised OSError.
+    """
+
+    def test_directory_input_bypasses_libratom(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            staging = Path(tmp) / "staging"
+            staging.mkdir()
+            (staging / "a.eml").write_text("Subject: x\n\nbody\n")
+            out = Path(tmp) / "out"
+
+            extractor = extract_pst.EmailExtractor(pst_path=staging, output_dir=out)
+
+            called = {"dir": False, "libratom": False}
+
+            def fake_dir(path):
+                called["dir"] = True
+
+            def fake_libratom():
+                called["libratom"] = True
+
+            with patch.object(extractor, "_process_eml_directory", fake_dir), patch.object(
+                extractor, "_extract_with_libratom", fake_libratom
+            ), patch.object(extract_pst, "USE_LIBRATOM", True):
+                extractor.extract()
+
+            self.assertTrue(called["dir"], "directory input did not reach directory mode")
+            self.assertFalse(called["libratom"], "directory input was sent to libratom")
+
+
 class TestModuleContract(unittest.TestCase):
     """Guards against the optional-dependency wiring being removed."""
 
