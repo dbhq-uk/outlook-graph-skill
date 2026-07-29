@@ -19,3 +19,6 @@ inbox/
 .venv/
 __pycache__/
 *.pyc
+
+# Subagent-driven-development scratch workspace (ledger, briefs, review packages)
+.superpowers/
