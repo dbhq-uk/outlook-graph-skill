@@ -2056,6 +2056,10 @@ ${existing_body}"
         echo "Exporting $total message(s) from '$folder_name' to $dest_dir ..."
         written=0
         failed=0
+        # Set once a token refresh has been attempted, so a genuinely dead
+        # token (revoked, bad creds) costs one failed refresh call for the
+        # whole export rather than one per remaining message.
+        token_refreshed=0
         # Process substitution, NOT a pipe: a piped `while` runs in a subshell,
         # so $written and $failed would be discarded and the summary would
         # always report zero.
@@ -2064,15 +2068,37 @@ ${existing_body}"
             fname=$(export_eml_filename "$received" "$msg_id")
             # -f so an HTTP error is a curl failure rather than a Graph error
             # body saved as an .eml, which the next step would parse as mail.
-            if ! curl -sf -X GET "${GRAPH_URL}/me/messages/$msg_id/\$value" \
+            if curl -sf -X GET "${GRAPH_URL}/me/messages/$msg_id/\$value" \
                 -H "Authorization: Bearer $ACCESS_TOKEN" \
                 -o "$dest_dir/$fname"; then
-                rm -f "$dest_dir/$fname"
-                echo "FAILED: $fname (MIME fetch error from Graph)"
-                failed=$((failed + 1))
+                written=$((written + 1))
                 continue
             fi
-            written=$((written + 1))
+
+            # This curl bypasses api_call's reactive refresh (that refresh
+            # happens inside export_list_messages's own command-substitution
+            # subshell and is lost to this parent), so on a long export the
+            # snapshotted $ACCESS_TOKEN can go stale mid-run. Refresh once
+            # and retry this one message before counting it as failed.
+            retry_ok=1
+            if [ "$token_refreshed" -eq 0 ]; then
+                token_refreshed=1
+                ACCESS_TOKEN=$(refresh_access_token) || true
+                if curl -sf -X GET "${GRAPH_URL}/me/messages/$msg_id/\$value" \
+                    -H "Authorization: Bearer $ACCESS_TOKEN" \
+                    -o "$dest_dir/$fname"; then
+                    retry_ok=0
+                fi
+            fi
+
+            if [ "$retry_ok" -eq 0 ]; then
+                written=$((written + 1))
+                continue
+            fi
+
+            rm -f "$dest_dir/$fname"
+            echo "FAILED: $fname (MIME fetch error from Graph)"
+            failed=$((failed + 1))
         done < <(printf '%s' "$messages" | jq -r '.value[] | "\(.id)\t\(.receivedDateTime)"')
 
         echo "Wrote $written .eml file(s) to $dest_dir"
@@ -2082,6 +2108,14 @@ ${existing_body}"
         echo
         echo "Append to a markdown archive with:"
         echo "  extract_pst.py $out_dir <archive-dir> --append"
+        # A caller chaining `export && extract_pst.py --append` must not
+        # proceed past a partial export, so a non-zero failed count is a
+        # non-zero exit - checked explicitly (not `[ … ] && exit 1`) because
+        # that form as the branch's last command would itself trip `set -e`
+        # when the test is false, i.e. on the success path.
+        if [ "$failed" -gt 0 ]; then
+            exit 1
+        fi
         ;;
 
     attach)
