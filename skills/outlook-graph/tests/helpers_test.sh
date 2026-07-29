@@ -383,9 +383,13 @@ eq "export encodes --since into \$filter" "1" \
 eq "export scopes the query to the folder" "1" \
    "$(grep -c '/me/mailFolders/FID/messages' /tmp/outlook_test_last_url)"
 
-# A bad --since must stop before any request is issued.
+# A bad --since must stop before any request is issued: capture the URL from
+# the last real call, run the rejected one, then check nothing overwrote it.
+last_url_before=$(cat /tmp/outlook_test_last_url)
 eq "export rejects a bad --since without calling Graph" "1" \
    "$(export_list_messages FID 'last tuesday' 5 >/dev/null 2>&1; echo $?)"
+eq "export rejects a bad --since without calling Graph (no request issued)" \
+   "$last_url_before" "$(cat /tmp/outlook_test_last_url)"
 
 api_call() { echo '{"error":{"code":"BadRequest","message":"nope"}}'; }
 eq "export propagates a Graph error as rc1" "1" \
