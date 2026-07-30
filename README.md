@@ -75,6 +75,14 @@ They cover the two halves of the same problem: the mail you are handling now, an
 
 Then run the one-time setup the skill points you to, and talk to it in plain language: *"check my email"*, *"draft a reply to the last message from Sam"*, *"am I free Thursday afternoon"*.
 
+### Any agent (Cursor, Copilot, Windsurf, Gemini, Cline and more)
+
+```bash
+npx skills add dbhq-uk/outlook-graph-skill
+```
+
+The [skills.sh](https://skills.sh) CLI installs into whichever agent directories it finds, so this works outside Claude Code and Codex too. Both skills come in one command.
+
 ### Local install (Claude Code or Codex)
 
 ```bash
