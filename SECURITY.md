@@ -1,0 +1,79 @@
+# Security
+
+## Reporting a vulnerability
+
+Email <dan@dbhq.uk> rather than opening a public issue. Include what you found,
+how to reproduce it, and what an attacker could do with it. You will get a first
+response within 48 hours.
+
+## What this skill does
+
+This skill reads and sends mail and manages calendar events through the
+Microsoft Graph API, and archives PST exports to markdown. It holds OAuth tokens
+for a real mailbox, which makes it the most security-sensitive skill in the
+collection. Read this section before installing it.
+
+### Network
+
+**Two hosts, both Microsoft:**
+
+| Host | Purpose |
+|------|---------|
+| `login.microsoftonline.com` | OAuth device-code sign-in and token refresh |
+| `graph.microsoft.com` | Mail, calendar and category operations |
+
+There is no DBHQ server in the path, no proxy and no telemetry. Your mail moves
+between your machine and Microsoft directly.
+
+### Credentials
+
+Tokens live under `~/.outlook-graph/<account>/`, with permissions set explicitly
+rather than left to the umask:
+
+```
+~/.outlook-graph/<account>/          700   directory
+~/.outlook-graph/<account>/config.json       600   app registration details
+~/.outlook-graph/<account>/credentials.json  600   access and refresh tokens
+```
+
+The credentials file is rewritten at `600` on every token refresh, not only at
+setup, so the permissions cannot drift over the life of the install.
+
+Multiple accounts are isolated in separate directories and selected with
+`--account` or `OUTLOOK_ACCOUNT`.
+
+**Revoking access:** these are OAuth tokens against your own Azure app
+registration. Revoke sessions in Entra ID (Azure AD) to cut access immediately.
+Deleting `~/.outlook-graph` removes the local copy but does not revoke the
+grant - do both.
+
+### Scope of access
+
+The skill can read, send and move mail, and create and delete calendar events.
+That is the point of it, but it means an agent running this skill can send email
+as you. The permissions granted are those on the app registration you create
+during setup: grant only the Graph scopes you actually need, and prefer
+delegated over application permissions.
+
+### On disk
+
+- Installs into `~/.claude/skills/outlook-graph` or `~/.codex`
+- Reads and writes `~/.outlook-graph/` only
+- `outlook-to-md` processes PST files **entirely locally** - a PST is never
+  uploaded anywhere
+
+## Note for automated scanners
+
+`skills/outlook-graph/tests/helpers_test.sh` uses `eval "$(extract_fn <name>)"`,
+which static analysis flags as command injection. It is not.
+
+The harness extracts individual named functions out of
+`outlook-graph-mail.sh` with `awk` and evaluates only those, so the pure logic
+helpers can be unit-tested offline without a Microsoft account or a network. The
+alternative - sourcing the script - would execute 2,500 lines of top-level
+config loading and credential checks and fail without a configured mailbox.
+
+The argument to `extract_fn` is a hardcoded function name in every one of its
+call sites. No external, user-supplied or network-derived input reaches it, and
+the file it reads is the skill's own script on local disk. The file is test-only
+and is not on any runtime path.
