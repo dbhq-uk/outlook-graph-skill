@@ -31,7 +31,8 @@ Tokens live under `~/.outlook-graph/<account>/`, with permissions set explicitly
 rather than left to the umask:
 
 ```
-~/.outlook-graph/<account>/          700   directory
+~/.outlook-graph/                            700   base directory
+~/.outlook-graph/<account>/                  700   per-account directory
 ~/.outlook-graph/<account>/config.json       600   app registration details
 ~/.outlook-graph/<account>/credentials.json  600   access and refresh tokens
 ```
@@ -61,6 +62,18 @@ delegated over application permissions.
 - Reads and writes `~/.outlook-graph/` only
 - `outlook-to-md` processes PST files **entirely locally** - a PST is never
   uploaded anywhere
+
+### On the "sensitive file access" findings
+
+Automated scanners flag the lines in `SKILL.md` that name
+`~/.outlook-graph/<account>/` as "access to home directory dotfiles". Those are
+sentences of documentation, not code - they describe where credentials live so
+you can find, inspect and delete them.
+
+The remediation such scanners advise, restricting the files to owner-only
+access, is what the table above already does. Documenting the location is a
+deliberate choice: a credential store you cannot find is not safer, only harder
+to audit. The paths stay in the documentation.
 
 ## Note for automated scanners
 
