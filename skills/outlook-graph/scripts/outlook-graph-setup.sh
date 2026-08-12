@@ -23,6 +23,7 @@ fi
 # One-time migration: legacy flat config -> default/
 if [ -f "$BASE_DIR/config.json" ] && [ ! -d "$BASE_DIR/default" ]; then
     mkdir -p "$BASE_DIR/default"
+    chmod 700 "$BASE_DIR" "$BASE_DIR/default"
     mv "$BASE_DIR/config.json" "$BASE_DIR/credentials.json" "$BASE_DIR/id_cache.json" \
        "$BASE_DIR/default/" 2>/dev/null || true
 fi
@@ -199,7 +200,7 @@ fi
 
 # Step 5: Save config
 mkdir -p "$CONFIG_DIR"
-chmod 700 "$CONFIG_DIR"
+chmod 700 "$BASE_DIR" "$CONFIG_DIR"
 echo -e "${BLUE}Step 5/7: Saving Configuration${NC}"
 
 cat > "$CONFIG_FILE" << EOF
