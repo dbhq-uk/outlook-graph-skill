@@ -262,7 +262,7 @@ folder or a Graph one.
 | Situation | What happens |
 |---|---|
 | Corrupt email | Logged to `extraction_log.txt`, processing continues |
-| Encoding problems | UTF-8, then latin-1, then raw bytes |
+| Encoding problems | The declared charset, or UTF-8 if Python cannot use it; bytes that will not decode become U+FFFD |
 | Two emails at the same timestamp | Suffixed `-001`, `-002` |
 | Path too long | Subject truncated, uniqueness preserved |
 | No `Message-ID` header | Nothing to dedupe on, so re-archived on every overlapping `--append` |

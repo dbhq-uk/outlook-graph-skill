@@ -187,7 +187,7 @@ Grep is exact, so search on names, addresses and distinctive phrases rather than
 
 - **"readpst is not installed"**: Install pst-utils (`sudo apt install pst-utils`, or `brew install libpst` on macOS)
 - **Corrupt emails**: Logged to extraction_log.txt, processing continues
-- **Encoding issues**: Falls back through UTF-8 → latin-1 → raw bytes
+- **Encoding issues**: Decoded with the declared charset, or as UTF-8 if Python cannot use that charset; bytes that will not decode are replaced with U+FFFD
 - **Duplicate timestamps**: Appended with -001, -002 suffixes
 - **Path too long**: Subject truncated, uniqueness preserved
 
