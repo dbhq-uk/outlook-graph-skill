@@ -10,7 +10,7 @@ If you prefer to set up the Azure app registration manually (instead of using `o
 ## Step 1: Create Azure App Registration
 
 1. Go to [Azure Portal](https://portal.azure.com)
-2. Navigate to **Azure Active Directory** → **App registrations**
+2. Navigate to **Microsoft Entra ID** → **App registrations**
 3. Click **New registration**
 4. Configure:
    - **Name:** `Claude-Outlook-Integration` (or your preferred name)
