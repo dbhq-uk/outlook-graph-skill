@@ -1,6 +1,6 @@
 ---
 name: outlook-to-md
-description: Turn Outlook mail into organised markdown archives - from a PST export, or from live mail exported by the outlook skill. Use when needing to convert PST files to markdown, extract email archives, process Outlook exports, create searchable email collections, or keep an existing archive current. Trigger on phrases like "extract pst", "convert pst", "pst to markdown", "outlook to markdown", "email archive", "extract outlook", "update my email archive".
+description: Turn Outlook mail into organised markdown archives - from a PST export, or from live mail exported by the outlook skill. Use when the user wants to convert or extract a PST or Outlook export to markdown, build a searchable email archive, or keep an existing email archive current.
 ---
 
 # Outlook Email to Markdown
@@ -82,7 +82,7 @@ ${CLAUDE_SKILL_DIR}/.venv/bin/python ${CLAUDE_SKILL_DIR}/scripts/outlook_to_md.p
 Deduplication is by `Message-ID`, so a `--since` window that overlaps what is
 already archived costs bandwidth and nothing else. Graph-sourced mail is
 recorded under the `pst_folder` index column like any other; the column means
-"the folder this message came from", and always did.
+"the folder this message came from".
 
 This guarantee depends on the message actually carrying a `Message-ID`
 header. Received mail always has one, but a message with none (some drafts,
@@ -145,10 +145,10 @@ outlook_to_md.py [-h] [--include-deleted] [--timezone TZ] [--verbose] [--append 
 | `--verbose`, `-v` | Verbose output with per-email logging |
 | `--append` | Skip emails already in archive (by Message-ID) |
 | `--overwrite` | Replace an existing archive: deletes its `emails/` folder and index files first |
+| `--owner-email EMAIL` | PST owner's email (fixes MAILER-DAEMON in sent items) |
 
 With neither flag, an output directory that already holds an archive is refused. Use
 `--append` to add to it. Use `--overwrite` only when the user has asked to rebuild it.
-| `--owner-email EMAIL` | PST owner's email (fixes MAILER-DAEMON in sent items) |
 
 ## Extraction Backends
 
