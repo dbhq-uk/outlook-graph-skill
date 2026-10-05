@@ -18,7 +18,7 @@ jobs:
   # included), ruff E9,F, which covers what the Python parse check here used
   # to, and no em or en dashes. Pinned by SHA; Dependabot moves the pin.
   floor:
-    uses: dbhq-uk/.github/.github/workflows/skill-floor.yml@af131df509f44eb9abfe8b37ad6299c11f496c5f
+    uses: dbhq-uk/.github/.github/workflows/skill-floor.yml@20c4c766c7e549e2b0ef9833f56aee49901c8d1c
 
   validate:
     runs-on: ubuntu-latest
